@@ -50,13 +50,14 @@ class FlywayMigrationPurityTest {
     Path tempDir;
 
     @Test
-    @DisplayName("全新库上 Flyway 迁移成功且只执行 2 个版本（V1 + V2）")
+    @DisplayName("全新库上 Flyway 迁移成功且只执行 3 个版本（V1 + V2 + V3）")
     void flywayMigratesFreshSqliteDatabase() {
         MigrateResult result = migrateFreshDatabase(tempDir.resolve("fresh.db"));
 
         assertThat(result.success).isTrue();
-        // V2 新增了 session_workspace_and_transfers 迁移脚本
-        assertThat(result.migrationsExecuted).isEqualTo(2);
+        // V2 新增 session_workspace_and_transfers；V3 把 run_command 超时种子更新为 1800
+        // （已发布的 V1 不回写，超时调整走后补 UPDATE 迁移，故版本数 2 → 3）
+        assertThat(result.migrationsExecuted).isEqualTo(3);
     }
 
     @Test

@@ -1,15 +1,19 @@
 package com.ananoesis.shell.service;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.ananoesis.shell.config.TransferProperties;
@@ -33,7 +37,8 @@ import net.schmizz.sshj.sftp.SFTPClient;
 /**
  * 文件传输调度与状态机（design.md D9「SFTP 传输」）。
  *
- * <p>职责：管理传输任务的完整生命周期——创建、调度、上传/下载、发布、取消。</p>
+ * <p>职责：管理传输任务的完整生命周期——创建、调度、上传/下载、发布、取消，
+ * 以及无进展停滞传输的超时判定（sftp-transfer spec）。</p>
  *
  * <h2>状态机</h2>
  * <ul>
@@ -49,6 +54,12 @@ import net.schmizz.sshj.sftp.SFTPClient;
  *   <li>queued 全应用 ≤ maxQueued</li>
  * </ul>
  *
+ * <h2>无进展超时（watchdog）</h2>
+ * <p>传输循环（上传写块 / 下载读块）每次字节进展都向 {@link TransferProgressWatchdog}
+ * 打点续命；{@link #expireStalledTransfers()} 由定时器周期调用，把停滞超过
+ * progressTimeoutSeconds 的 transferring 判定为 failed 并释放配额。
+ * 判定与传输线程解耦：扫描线程只做内存计算与单条落库，不会被卡死的传输阻塞。</p>
+ *
  * <p>WHY 配额检查在 createTransfer 中同步执行：前端需要立即知道是被排队还是被拒绝，
  * 不能等后台调度器异步通知。调度器只负责把 queued 提升为 ready（当有槽位释放时）。</p>
  */
@@ -57,19 +68,52 @@ public class TransferService {
 
     private static final Logger LOG = LoggerFactory.getLogger(TransferService.class);
 
+    /**
+     * 无进展超时失败码（sftp-transfer spec：连续 progressTimeoutSeconds 无字节进展则判定失败）。
+     *
+     * <p>WHY 公开常量而非魔法字符串：测试、前端文案与监控按码分类展示，
+     * 字面量散落各处极易漂移。</p>
+     */
+    public static final String FAILURE_PROGRESS_TIMEOUT = "progress_timeout";
+
     private final FileTransferMapper mapper;
     private final TransferProperties properties;
     private final SshTerminalService terminalService;
     private final DownloadTicketService ticketService;
+    private final TransferProgressWatchdog watchdog;
 
+    /**
+     * 生产构造器（Spring 自动装配）。
+     *
+     * <p>WHY 必须显式标 {@code @Autowired}：本类有两个构造器（下面那个 4 参的供既有测试使用），
+     * Spring 面对多于一个候选构造器且没有无参构造器时无法决定用哪个，必须显式指定。
+     * （与 {@code OpenAiCompatibleChatModelProvider} 的多构造器处理方式一致。）</p>
+     */
+    @Autowired
     public TransferService(FileTransferMapper mapper,
                            TransferProperties properties,
                            SshTerminalService terminalService,
-                           DownloadTicketService ticketService) {
+                           DownloadTicketService ticketService,
+                           TransferProgressWatchdog watchdog) {
         this.mapper = Objects.requireNonNull(mapper, "mapper 不得为 null");
         this.properties = Objects.requireNonNull(properties, "properties 不得为 null");
         this.terminalService = Objects.requireNonNull(terminalService, "terminalService 不得为 null");
         this.ticketService = Objects.requireNonNull(ticketService, "ticketService 不得为 null");
+        this.watchdog = Objects.requireNonNull(watchdog, "watchdog 不得为 null");
+    }
+
+    /**
+     * 兼容构造器：既有测试（TransferFailureTest / TransferPublicationTest / TransferSchedulingTest）
+     * 仍以 4 参构造，不关心 watchdog 判定。
+     *
+     * <p>WHY 新建独立实例而非注入共享单例：这些测试里上传/下载接线（register/unregister）
+     * 仍正常工作，只是没有扫描线程去判定，实例随测试结束即被回收。</p>
+     */
+    public TransferService(FileTransferMapper mapper,
+                           TransferProperties properties,
+                           SshTerminalService terminalService,
+                           DownloadTicketService ticketService) {
+        this(mapper, properties, terminalService, ticketService, new TransferProgressWatchdog());
     }
 
     // ==================================================================
@@ -180,6 +224,50 @@ public class TransferService {
     }
 
     // ==================================================================
+    // 无进展超时判定（watchdog 扫描）
+    // ==================================================================
+
+    /**
+     * 扫描停滞传输并判定失败（sftp-transfer spec：连续 progressTimeoutSeconds
+     * 无字节进展则判定传输失败、释放资源、显示失败原因，不无限等待）。
+     *
+     * <p>设计为被定时器周期调用；判定数据来自 {@link TransferProgressWatchdog}
+     * 的内存打点，扫描路径上没有任何可能长时间阻塞的操作。</p>
+     *
+     * <p>WHY 每条独立 try/catch：单条查库异常（库抖动）不阻断同批其他传输的判定，
+     * 异常条目保留追踪，下一轮扫描自动重试；判定落库成功后才摘除追踪，
+     * 崩溃时最多多判一轮（幂等），不会漏判。</p>
+     */
+    public void expireStalledTransfers() {
+        Duration timeout = Duration.ofSeconds(properties.getProgressTimeoutSeconds());
+        List<String> stalledIds = watchdog.findStalled(timeout);
+        for (String transferId : stalledIds) {
+            try {
+                FileTransfer entity = mapper.selectById(transferId);
+                if (entity == null) {
+                    // 记录已不存在（如会话级联删除）：摘除防止条目永久泄漏
+                    watchdog.unregister(transferId);
+                    continue;
+                }
+                if (!TransferStatus.TRANSFERRING.getValue().equals(entity.getStatus())) {
+                    // 已是终态（如已 delivered）：不覆盖既有结果，仅摘除残留追踪项。
+                    // WHY 不 updateById：终态结果是传输循环写下的最初事实，扫描只做自愈清理
+                    watchdog.unregister(transferId);
+                    continue;
+                }
+                // transferring 且停滞超时 → 判定失败（失败落库 + 撤票 + 释放槽位）
+                markFailed(entity, FAILURE_PROGRESS_TIMEOUT);
+                watchdog.unregister(transferId);
+                LOG.info("传输无进展超时判定失败: id={} 连续{}秒无字节进展",
+                        transferId, properties.getProgressTimeoutSeconds());
+            } catch (RuntimeException e) {
+                // 单条失败不阻断同批其他传输；条目保留追踪，下一轮扫描重试
+                LOG.warn("停滞传输判定失败，留下轮扫描重试: id={}", transferId, e);
+            }
+        }
+    }
+
+    // ==================================================================
     // 上传
     // ==================================================================
 
@@ -217,6 +305,10 @@ public class TransferService {
         entity.setUpdatedAt(LocalDateTime.now());
         mapper.updateById(entity);
 
+        // WHY 此刻注册而非 openSftp 成功后：连接建立后远端一直不吐字节的假死同样要能被发现，
+        // 停滞计时从进入 transferring 起算
+        watchdog.register(transferId);
+
         // 获取 SFTP 连接
         SessionRuntime runtime = terminalService.requireRuntime(entity.getSessionId());
         String tempPath = ".ananoesis-upload-" + transferId + ".part";
@@ -247,6 +339,12 @@ public class TransferService {
             LOG.error("上传失败: transfer={}", transferId, e);
             markFailed(entity, "io_error");
             throw new RuntimeException("上传失败: " + e.getMessage(), e);
+        } finally {
+            // WHY 仅终态摘除：终态（published/failed）必须离开扫描视野，否则条目泄漏且空耗扫描；
+            // 字节数不匹配等异常不落终态，保持追踪由扫描线程兜底判定，DB 状态与追踪集永不失配
+            if (isTerminalState(entity.getStatus())) {
+                watchdog.unregister(transferId);
+            }
         }
     }
 
@@ -320,6 +418,10 @@ public class TransferService {
         entity.setUpdatedAt(LocalDateTime.now());
         mapper.updateById(entity);
 
+        // WHY 此刻注册：下载全程由控制器流式转发、不更新 transferred_bytes（避免写放大），
+        // 停滞计时从进入 transferring 起算，读取阶段的续命由返回流的读包装负责
+        watchdog.register(transferId);
+
         // 获取 SFTP 连接并打开文件
         SessionRuntime runtime = terminalService.requireRuntime(entity.getSessionId());
         try {
@@ -329,8 +431,10 @@ public class TransferService {
             // 获取文件属性用于 Content-Disposition
             FileAttributes attrs = sftp.stat(entity.getRemotePath());
 
-            return new DownloadResult(remoteFile, attrs, entity.getFileName(), sftp);
+            return new DownloadResult(remoteFile, attrs, entity.getFileName(), sftp, watchdog, transferId);
         } catch (IOException e) {
+            // WHY 先摘除再落库：保证追踪清理不被 markFailed 内的库异常跳过
+            watchdog.unregister(transferId);
             markFailed(entity, "io_error");
             throw new RuntimeException("打开远端文件失败: " + e.getMessage(), e);
         }
@@ -346,6 +450,9 @@ public class TransferService {
         entity.setUpdatedAt(LocalDateTime.now());
         mapper.updateById(entity);
         ticketService.revokeTicket(transferId);
+
+        // 已终态 → 离开 watchdog 扫描视野（幂等；流关闭时还会再摘一次）
+        watchdog.unregister(transferId);
 
         // 释放槽位，尝试调度下一个
         tryPromoteToReady(entity.getSessionId());
@@ -373,6 +480,9 @@ public class TransferService {
         entity.setStatus(TransferStatus.CANCELLED.getValue());
         entity.setUpdatedAt(LocalDateTime.now());
         mapper.updateById(entity);
+
+        // 已终态 → 离开 watchdog 扫描视野（从未注册过时为幂等空操作）
+        watchdog.unregister(transferId);
 
         // 撤销票据
         ticketService.revokeTicket(transferId);
@@ -427,19 +537,28 @@ public class TransferService {
         LambdaQueryWrapper<FileTransfer> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileTransfer::getSessionId, sessionId)
                 .in(FileTransfer::getStatus, TransferStatus.READY.getValue(), TransferStatus.TRANSFERRING.getValue());
-        return Math.toIntExact(mapper.selectCount(wrapper));
+        return toInt(mapper.selectCount(wrapper));
     }
 
     private int countActiveGlobal() {
         LambdaQueryWrapper<FileTransfer> wrapper = new LambdaQueryWrapper<>();
         wrapper.in(FileTransfer::getStatus, TransferStatus.READY.getValue(), TransferStatus.TRANSFERRING.getValue());
-        return Math.toIntExact(mapper.selectCount(wrapper));
+        return toInt(mapper.selectCount(wrapper));
     }
 
     private int countQueuedGlobal() {
         LambdaQueryWrapper<FileTransfer> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(FileTransfer::getStatus, TransferStatus.QUEUED.getValue());
-        return Math.toIntExact(mapper.selectCount(wrapper));
+        return toInt(mapper.selectCount(wrapper));
+    }
+
+    /**
+     * WHY null 容忍：mapper 为 mock 时 selectCount 默认返回 null（生产 MyBatis-Plus 不会），
+     * {@code Math.toIntExact(null)} 会 NPE。容忍视为 0，让配额判定在测试桩下保持可用；
+     * 生产语义不变（真实计数永不为 null）。
+     */
+    private static int toInt(Long count) {
+        return count == null ? 0 : Math.toIntExact(count);
     }
 
     private FileTransfer findFirstQueued(String sessionId) {
@@ -472,6 +591,10 @@ public class TransferService {
                 while ((bytesRead = input.read(buffer)) != -1) {
                     out.write(buffer, 0, bytesRead);
                     totalBytes += bytesRead;
+
+                    // WHY 每块打点：字节进展即续命；远端假死时 read 长期阻塞、无人打点，
+                    // 扫描线程据此判定停滞——这是无进展超时唯一的事实来源
+                    watchdog.markProgress(entity.getId());
 
                     // 更新进度
                     entity.setTransferredBytes(totalBytes);
@@ -606,6 +729,14 @@ public class TransferService {
     }
 
     private void markFailed(FileTransfer entity, String failureCode) {
+        // WHY 终态保护（先到先得）：watchdog 扫描线程可能先于卡死的传输线程判定 progress_timeout，
+        // 解除阻塞后传输线程再抛 IOException 试图 markFailed(io_error)——首个错误才是根因，
+        // 后到的失败原因不得覆盖先到的判定
+        if (isTerminalState(entity.getStatus())) {
+            LOG.debug("传输已终态，跳过失败标记: id={} status={} 请求的失败码={}",
+                    entity.getId(), entity.getStatus(), failureCode);
+            return;
+        }
         entity.setStatus(TransferStatus.FAILED.getValue());
         entity.setFailureCode(failureCode);
         entity.setUpdatedAt(LocalDateTime.now());
@@ -660,6 +791,7 @@ public class TransferService {
         }
         if (entity.getFailureCode() != null) {
             dto.setFailureCode(entity.getFailureCode());
+            dto.setFailureMessage(describeFailureForDisplay(entity.getFailureCode()));
         }
         if (entity.getCreatedAt() != null) {
             dto.setCreatedAt(entity.getCreatedAt().atZone(ZoneId.systemDefault()).toOffsetDateTime());
@@ -668,6 +800,22 @@ public class TransferService {
             dto.setUpdatedAt(entity.getUpdatedAt().atZone(ZoneId.systemDefault()).toOffsetDateTime());
         }
         return dto;
+    }
+
+    /**
+     * 由失败码派生用户可读的失败原因。
+     *
+     * <p>WHY 派生而非落库：file_transfers 表没有 failure_message 列，failure_code 是唯一事实来源；
+     * 文案内含配置的超时秒数，配置调整后展示自动跟随，无需迁移历史数据。</p>
+     *
+     * @return 展示文案；暂无对应文案的失败码返回 null（前端按失败码展示通用文案）
+     */
+    private String describeFailureForDisplay(String failureCode) {
+        if (FAILURE_PROGRESS_TIMEOUT.equals(failureCode)) {
+            return String.format("连续 %d 秒无字节进展，传输已判定失败",
+                    properties.getProgressTimeoutSeconds());
+        }
+        return null;
     }
 
     // ==================================================================
@@ -685,17 +833,24 @@ public class TransferService {
         private final FileAttributes attributes;
         private final String fileName;
         private final SFTPClient sftpClient;
+        private final TransferProgressWatchdog watchdog;
+        private final String transferId;
 
         public DownloadResult(RemoteFile remoteFile, FileAttributes attributes,
-                              String fileName, SFTPClient sftpClient) {
+                              String fileName, SFTPClient sftpClient,
+                              TransferProgressWatchdog watchdog, String transferId) {
             this.remoteFile = remoteFile;
             this.attributes = attributes;
             this.fileName = fileName;
             this.sftpClient = sftpClient;
+            this.watchdog = watchdog;
+            this.transferId = transferId;
         }
 
         public InputStream getInputStream() {
-            return remoteFile.new RemoteFileInputStream();
+            // WHY 包装而非裸流：下载全程不更新 transferred_bytes（避免写放大），
+            // 只有读循环自己知道字节是否在动——每次读到数据即向 watchdog 续命
+            return new ProgressTrackingInputStream(remoteFile.new RemoteFileInputStream(), watchdog, transferId);
         }
 
         public FileAttributes getAttributes() {
@@ -722,6 +877,46 @@ public class TransferService {
             } catch (IOException e) {
                 // 忽略
             }
+            // WHY 无条件摘除且幂等：close 是下载流生命周期终点（控制器 try-with-resources 保证调用），
+            // 即使关闭过程有 IOException 也必须摘除，否则残留条目只能靠扫描自愈分支兜底
+            watchdog.unregister(transferId);
+        }
+    }
+
+    /**
+     * 下载读包装：每次读到字节即向 watchdog 打点续命。
+     *
+     * <p>WHY 仅在实际读到字节时打点：EOF（-1）不是字节进展，EOF 后控制器即将结束响应
+     * 并关闭流，不应为无进展的读取续命；阻塞中的 read 不返回 → 不打点 → 扫描可判定停滞。
+     * 覆盖 {@code read(byte[],int,int)} 与 {@code read()} 两个入口，
+     * {@link FilterInputStream#read(byte[])} 的默认实现会经虚调用走到前者。</p>
+     */
+    private static final class ProgressTrackingInputStream extends FilterInputStream {
+        private final TransferProgressWatchdog watchdog;
+        private final String transferId;
+
+        ProgressTrackingInputStream(InputStream in, TransferProgressWatchdog watchdog, String transferId) {
+            super(in);
+            this.watchdog = watchdog;
+            this.transferId = transferId;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = in.read();
+            if (b != -1) {
+                watchdog.markProgress(transferId);
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            int n = in.read(b, off, len);
+            if (n > 0) {
+                watchdog.markProgress(transferId);
+            }
+            return n;
         }
     }
 }

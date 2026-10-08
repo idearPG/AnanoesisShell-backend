@@ -151,7 +151,7 @@ class SettingsApiIntegrationTest extends AbstractSqliteIntegrationTest {
         assertThat(settingsService.approvalTimeoutSeconds())
                 .as("approval.timeout.seconds 种子值").isEqualTo(120);
         assertThat(settingsService.runCommandTimeoutSeconds())
-                .as("run_command.timeout.seconds 种子值").isEqualTo(60);
+                .as("run_command.timeout.seconds 种子值").isEqualTo(1800);
         assertThat(settingsService.runCommandMaxOutputBytes())
                 .as("run_command.max_output_bytes 种子值").isEqualTo(65536);
         assertThat(settingsService.readFileMaxLines())

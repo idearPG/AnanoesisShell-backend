@@ -80,6 +80,8 @@ final class AgentSystemPrompt {
                 - 命令受执行超时与输出长度上限约束，超限会被中断或截断。
                   因此优先用 grep -n / sed -n / tail -n / awk 精确定位，
                   不要一次 cat 整个大日志或大文件。
+                - 读大文件时先用 wc -l 查总行数，再用 read_file 的 start_line/end_line
+                  参数分段读取；优先 grep -n 定位关键行号，避免全量加载。
                 - 绝对不要在命令里内联任何口令、密钥或令牌。
 
                 ## 输出纪律

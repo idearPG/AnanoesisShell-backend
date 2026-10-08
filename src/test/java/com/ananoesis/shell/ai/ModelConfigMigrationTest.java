@@ -1,4 +1,4 @@
-﻿package com.ananoesis.shell.ai;
+package com.ananoesis.shell.ai;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

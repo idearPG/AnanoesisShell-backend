@@ -42,7 +42,7 @@ import com.ananoesis.shell.ssh.SshTargetResolver;
 import com.ananoesis.shell.support.FakeSshServer;
 
 /**
- * 只读工具集与工具分级（tasks 9.2 / 9.3）。
+ * 只读工具集与工具分级（tasks 9.2 / 9.3 / 4.1-4.5）。
  *
  * <h2>WHY 需要两种 exec 服务</h2>
  * <ul>
@@ -160,7 +160,7 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
     @Test
     @DisplayName("9.2：read_file 默认读前 max_lines 行，用 sed 的行区间表达")
     void readFileDefaultsToTheFirstMaxLinesRows() {
-        tools.readFile("/etc/hosts", null, context(hostId));
+        tools.readFile("/etc/hosts", null, null, context(hostId));
 
         assertThat(sentCommands()).contains("sed -n '1,500p' '/etc/hosts'");
     }
@@ -168,9 +168,9 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
     @Test
     @DisplayName("9.2：read_file 支持 start_line，让模型能接着上次的位置往下读")
     void readFileHonoursStartLine() {
-        tools.readFile("/etc/hosts", 101, context(hostId));
+        tools.readFile("/etc/hosts", 101, null, context(hostId));
 
-        assertThat(sentCommands()).contains("sed -n '101,600p' '/etc/hosts'");
+        assertThat(sentCommands()).contains("sed -n '101,$p' '/etc/hosts'");
     }
 
     @Test
@@ -178,20 +178,21 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
     void readFileFollowsTheCurrentMaxLinesSetting() {
         writeSetting(MAX_LINES_KEY, "50");
 
-        tools.readFile("/etc/hosts", null, context(hostId));
+        tools.readFile("/etc/hosts", null, null, context(hostId));
 
         assertThat(sentCommands()).contains("sed -n '1,50p' '/etc/hosts'");
         assertThat(settings.readFileMaxLines()).isEqualTo(50);
     }
 
     @Test
-    @DisplayName("9.2：start_line 为 0 或负数时按第 1 行处理——不让模型写出非法的 sed 区间")
+    @DisplayName("9.2/4.5：start_line 为 0 或负数时按第 1 行处理——归一为无范围读取，绝不拼出 '1,$p' 全量区间")
     void readFileTreatsNonPositiveStartLineAsTheFirstLine() {
-        tools.readFile("/etc/hosts", 0, context(hostId));
-        tools.readFile("/etc/hosts", -5, context(hostId));
+        tools.readFile("/etc/hosts", 0, null, context(hostId));
+        tools.readFile("/etc/hosts", -5, null, context(hostId));
 
         assertThat(sentCommands())
-                .as("sed -n '0,499p' 在部分实现上是语法错误，-5 更会拼出 '-5,494p'")
+                .as("sed -n '0,499p' 在部分实现上是语法错误；'1,$p' 更会在超大文件上全量读取。"
+                        + "非正 start_line 语义上就是「从头读」，必须落回受 max_lines 保护的无范围路径")
                 .containsOnly("sed -n '1,500p' '/etc/hosts'");
     }
 
@@ -268,27 +269,211 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
                 "exit=-1 [执行超时，已被中断，输出可能不完整] [输出超过上限，已被截断]\npartial");
     }
 
+    // ==================================================================
+    // 4.1-4.5：read_file 行范围与摘要（ai-agent spec delta）
+    // ==================================================================
+
     @Test
-    @DisplayName("9.2：read_file 取满行数上限时追加截断提示，避免模型以为文件到此为止")
-    void readFileAppendsTruncationHintWhenTheLineLimitIsReached() {
-        writeSetting(MAX_LINES_KEY, "3");
-        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l1\nl2\nl3\n", "", false, false, 3L));
+    @DisplayName("4.2：显式范围读取用 sed 精确取行，结果标注含 wc -l 取得的总行数")
+    void readFileSupportsStartAndEndLineRange() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l10\nl11\nl12\n", "", false, false, 1L));
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "500 /etc/hosts\n", "", false, false, 1L));
 
-        String result = new AgentTools(exec, settings).readFile("/etc/hosts", null, context(hostId));
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", 10, 12, context(hostId));
 
-        assertThat(result).contains("l1\nl2\nl3\n");
-        assertThat(result).contains("已按 read_file.max_lines 上限截断");
-        assertThat(result).contains("请用 run_command 配合 grep/sed 精确定位");
+        assertThat(exec.commands())
+                .contains("sed -n '10,12p' '/etc/hosts'", "wc -l '/etc/hosts'");
+        assertThat(result).contains("[行 10-12 / 总 500 行]");
+        assertThat(result).contains("l10\nl11\nl12\n");
     }
 
     @Test
-    @DisplayName("9.2：返回行数少于上限时不加提示——多余的提示会让模型无谓地再翻一次")
-    void readFileOmitsTheHintWhenFewerLinesComeBack() {
+    @DisplayName("4.2：仅传 start_line 时 sed 用 $ 读到末尾，标注为「X-末尾 / 总 Z 行」")
+    void readFileWithOnlyStartLineReadsToEndOfFile() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l50\nl51\n", "", false, false, 1L));
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "600 /etc/hosts\n", "", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", 50, null, context(hostId));
+
+        assertThat(exec.commands()).contains("sed -n '50,$p' '/etc/hosts'");
+        assertThat(result).contains("[行 50-末尾 / 总 600 行]");
+    }
+
+    @Test
+    @DisplayName("4.3：无范围读取达上限时返回结构摘要——总行数、头部（复用已读内容）、尾部 10 行、分段引导")
+    void readFileSummarizesWhenTheLineLimitIsReached() {
+        writeSetting(MAX_LINES_KEY, "3");
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l1\nl2\nl3\n", "", false, false, 3L));
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "1000 /etc/hosts\n", "", false, false, 1L));
+        exec.registerOutcome("tail -n 10", new ExecOutcome(0, "t991\nt1000\n", "", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", null, null, context(hostId));
+
+        assertThat(result)
+                .as("总行数来自 wc -l；省略数 = 1000 - 头 3 - 尾 10 = 987")
+                .contains("[文件总 1000 行，省略中间 987 行]")
+                .contains("l1\nl2\nl3\n")      // 头部直接复用第一次 sed 已读到的内容
+                .contains("t991\nt1000\n")     // 尾部只能远端补取
+                .contains("start_line")
+                .contains("end_line");
+        assertThat(exec.commands())
+                .as("大文件摘要只追加 wc -l 与 tail -n 10；头部不发 head——第一次 sed 的结果里就有")
+                .containsExactly("sed -n '1,3p' '/etc/hosts'", "wc -l '/etc/hosts'", "tail -n 10 '/etc/hosts'");
+    }
+
+    @Test
+    @DisplayName("4.3：摘要头部最多保留 20 行——max_lines 较大时也不把已读内容全量回喂")
+    void readFileCapsTheSummaryHeadAtTwentyLines() {
+        writeSetting(MAX_LINES_KEY, "25");
+        StringBuilder body = new StringBuilder();
+        for (int i = 1; i <= 25; i++) {
+            body.append("l").append(i).append('\n');
+        }
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, body.toString(), "", false, false, 3L));
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "1000 /etc/hosts\n", "", false, false, 1L));
+        exec.registerOutcome("tail -n 10", new ExecOutcome(0, "t991\nt1000\n", "", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", null, null, context(hostId));
+
+        assertThat(result)
+                .as("省略数 = 1000 - 头 20 - 尾 10 = 970：头部压到 20 行，"
+                        + "「摘要」才不会退化成「截断输出」，模型的 token 预算才不会被头部吃光")
+                .contains("[文件总 1000 行，省略中间 970 行]")
+                .contains("l20\n")
+                .doesNotContain("l21\n")
+                .doesNotContain("l25\n");
+    }
+
+    @Test
+    @DisplayName("4.3/小文件：返回行数少于上限时行为与本变更前一致——一条 sed，无 wc/tail，无摘要")
+    void readFileOmitsTheSummaryWhenFewerLinesComeBack() {
         writeSetting(MAX_LINES_KEY, "3");
         CannedExecService exec = cannedReturning(new ExecOutcome(0, "l1\nl2\n", "", false, false, 3L));
 
-        assertThat(new AgentTools(exec, settings).readFile("/etc/hosts", null, context(hostId)))
-                .doesNotContain("已按 read_file.max_lines 上限截断");
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", null, null, context(hostId));
+
+        assertThat(result)
+                .isEqualTo("exit=0\nl1\nl2\n")
+                .doesNotContain("省略")
+                .doesNotContain("start_line");
+        assertThat(exec.commands())
+                .as("wc -l / tail 都是大文件摘要的开销，小文件路径一条命令都不许多发")
+                .containsExactly("sed -n '1,3p' '/etc/hosts'");
+    }
+
+    @Test
+    @DisplayName("4.5 边界：start_line 超出总行数时返回空内容——不触发摘要，也不发 tail")
+    void readFileWithStartLineBeyondTotalReturnsEmptyContent() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "", "", false, false, 1L));
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "100 /etc/hosts\n", "", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", 9999, null, context(hostId));
+
+        assertThat(exec.commands()).contains("sed -n '9999,$p' '/etc/hosts'");
+        // 标注里的总行数让模型自行看出 9999 > 100，无需额外的越界文案
+        assertThat(result).contains("[行 9999-末尾 / 总 100 行]");
+        assertThat(result).doesNotContain("省略");
+        assertThat(exec.commands())
+                .as("空结果不是大文件，摘要路径的 tail 不应出现")
+                .noneMatch(command -> command.startsWith("tail"));
+    }
+
+    @Test
+    @DisplayName("4.5 边界：end_line < start_line 在下发命令前即被拒绝")
+    void readFileWithEndLineBeforeStartLineIsRejected() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "", "", false, false, 1L));
+
+        assertThatThrownBy(() -> new AgentTools(exec, settings)
+                .readFile("/etc/hosts", 100, 50, context(hostId)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("end_line")
+                .hasMessageContaining("start_line");
+
+        assertThat(exec.commands())
+                .as("校验必须在下发命令之前完成")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("4.5 归一：start_line=0 配合 end_line 时按第 1 行处理，不产生非法 sed 区间")
+    void readFileNormalizesNonPositiveStartLineWithEndLine() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l1\nl2\n", "", false, false, 1L));
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "200 /etc/hosts\n", "", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", 0, 200, context(hostId));
+
+        assertThat(exec.commands())
+                .as("0 不是合法行号；归一为 1 后与显式 1,200 等价，绝不能拼出 '0,200p'")
+                .contains("sed -n '1,200p' '/etc/hosts'");
+        assertThat(result).contains("[行 1-200 / 总 200 行]");
+    }
+
+    @Test
+    @DisplayName("4.3 降级：无范围大文件且 wc -l 失败时不阻塞读取，退回含分块引导的截断提示")
+    void readFileFallsBackToPlainHintWhenWcFails() {
+        writeSetting(MAX_LINES_KEY, "3");
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l1\nl2\nl3\n", "", false, false, 3L));
+        exec.registerOutcome("wc -l", new ExecOutcome(1, "", "wc: No such file or directory", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", null, null, context(hostId));
+
+        assertThat(result)
+                .as("wc 失败只是拿不到总行数，已读内容必须原样返回")
+                .contains("l1\nl2\nl3\n")
+                .contains("start_line")
+                .contains("end_line");
+        assertThat(exec.commands())
+                .as("总行数未知时再发 tail 也拼不出可靠摘要，一并省掉")
+                .noneMatch(command -> command.startsWith("tail"));
+    }
+
+    @Test
+    @DisplayName("4.2 降级：范围读取时 wc -l 失败则标注退化为无总行数，读取结果不受影响")
+    void readFileDegradesRangeLabelWhenWcFails() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l10\n", "", false, false, 1L));
+        exec.registerOutcome("wc -l", new ExecOutcome(127, "", "wc: command not found", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", 10, 12, context(hostId));
+
+        assertThat(result)
+                .contains("[行 10-12]")
+                .contains("l10\n");
+        assertThat(result).doesNotContain("总");
+    }
+
+    @Test
+    @DisplayName("4.3 降级：tail 失败时摘要保留总行数与头部，尾部缺失如实说明而不编造")
+    void readFileKeepsHeadSummaryWhenTailFails() {
+        writeSetting(MAX_LINES_KEY, "3");
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l1\nl2\nl3\n", "", false, false, 3L));
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "1000 /etc/hosts\n", "", false, false, 1L));
+        exec.registerOutcome("tail -n 10", new ExecOutcome(1, "", "tail: error", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", null, null, context(hostId));
+
+        assertThat(result)
+                .contains("[文件总 1000 行]")
+                .contains("l1\nl2\nl3\n")
+                .contains("start_line");
+    }
+
+    @Test
+    @DisplayName("4.3 降级：wc 基础设施失败不残留错误状态，后续无关调用不被旧错误污染")
+    void wcFailureDoesNotPolluteSubsequentToolCalls() {
+        writeSetting(MAX_LINES_KEY, "3");
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l1\nl2\nl3\n", "", false, false, 3L));
+        exec.registerFailure("wc -l", HostNotFoundException.forId("gone"));
+
+        String readFileResult = new AgentTools(exec, settings).readFile("/etc/hosts", null, null, context(hostId));
+        assertThat(readFileResult)
+                .as("wc 抛基础设施异常时同样走降级——读取不中断")
+                .contains("l1\nl2\nl3\n");
+
+        exec.returnOutcome(new ExecOutcome(0, "ok\n", "", false, false, 1L));
+        String listDirResult = new AgentTools(exec, settings).listDir("/var/log", context(hostId));
+        assertThat(listDirResult)
+                .as("wc 失败会把错误写进 ThreadLocal；残留会让下一次无关调用误报「错误：」")
+                .isEqualTo("exit=0\nok\n");
     }
 
     @Test
@@ -425,7 +610,7 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
         assertThatThrownBy(() -> stubbed.listDir("  ", context(hostId)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("path 不得为空");
-        assertThatThrownBy(() -> stubbed.readFile(null, null, context(hostId)))
+        assertThatThrownBy(() -> stubbed.readFile(null, null, null, context(hostId)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("path 不得为空");
         assertThat(exec.commands()).isEmpty();
@@ -516,6 +701,8 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
         private final List<UUID> requestedHostIds = new ArrayList<>();
         private ExecOutcome outcome = new ExecOutcome(0, "", "", false, false, 1L);
         private RuntimeException failure;
+        private final List<Map.Entry<String, ExecOutcome>> prefixOutcomes = new ArrayList<>();
+        private final List<Map.Entry<String, RuntimeException>> prefixFailures = new ArrayList<>();
 
         CannedExecService() {
             super(new SshConnectionService(AgentTestWiring.fastSshProperties()),
@@ -527,8 +714,18 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
         public ExecOutcome executeForHost(UUID requestedHostId, String command, ExecLimits limits) {
             requestedHostIds.add(requestedHostId);
             commands.add(command);
+            for (Map.Entry<String, RuntimeException> entry : prefixFailures) {
+                if (command.startsWith(entry.getKey())) {
+                    throw entry.getValue();
+                }
+            }
             if (failure != null) {
                 throw failure;
+            }
+            for (Map.Entry<String, ExecOutcome> entry : prefixOutcomes) {
+                if (command.startsWith(entry.getKey())) {
+                    return entry.getValue();
+                }
             }
             return outcome;
         }
@@ -539,6 +736,16 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
 
         void failWith(RuntimeException value) {
             this.failure = value;
+        }
+
+        /** WHY 前缀匹配：摘要测试需要 sed/wc/tail 各自返回不同结果。 */
+        void registerOutcome(String commandPrefix, ExecOutcome outcome) {
+            prefixOutcomes.add(Map.entry(commandPrefix, outcome));
+        }
+
+        /** WHY 前缀匹配异常：wc 降级测试需要"主 sed 成功、wc 抛基础设施异常"的组合。 */
+        void registerFailure(String commandPrefix, RuntimeException failure) {
+            prefixFailures.add(Map.entry(commandPrefix, failure));
         }
 
         List<String> commands() {

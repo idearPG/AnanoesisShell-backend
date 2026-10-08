@@ -71,7 +71,7 @@ class ApprovedCommandRunnerTest extends AbstractSqliteIntegrationTest {
 
     private static final String TIMEOUT_KEY = "run_command.timeout.seconds";
     private static final String MAX_OUTPUT_KEY = "run_command.max_output_bytes";
-    private static final String SEEDED_TIMEOUT = "60";
+    private static final String SEEDED_TIMEOUT = "1800";
     private static final String SEEDED_MAX_OUTPUT = "65536";
 
     private static final String HOST_LABEL = "命令执行测试机";

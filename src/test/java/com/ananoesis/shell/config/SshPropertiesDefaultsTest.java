@@ -22,18 +22,23 @@ import org.springframework.core.io.ClassPathResource;
 
 /**
  * 把 SSH 运行时参数的<b>三个来源</b>钉在一起：Java 字段默认值、{@code application.yml}、
- * 以及 {@code V1__init_schema.sql} 预置的 {@code settings} 行。
+ * 以及迁移落库后的 {@code settings} 有效值（V1 种子被 V3 UPDATE 覆盖后的值）。
  *
  * <p>WHY 会有三个来源（这是 design.md D6 遗留的已知漂移风险）：
  * 运行期真正生效的是 {@code application.yml}；{@code SshProperties} 的字段默认值是
- * "yml 里漏写某项"时的兜底；而 {@code settings} 表里的种子行是将来"设置界面"要展示与覆盖的值
+ * "yml 里漏写某项"时的兜底；而 {@code settings} 表里的行是将来"设置界面"要展示与覆盖的值
  * （settings 的 REST 管理属后续 Wave）。三份值现在语义重叠、却各写各的，
  * 任何一处单独改动都不会让编译或测试失败——症状是"用户在设置界面看到 15 秒、
  * 实际生效的是 30 秒"，这类缺陷几乎不可能靠肉眼发现。</p>
  *
+ * <p>WHY 种子行要叠加 V3：已发布的 V1 不回写（校验和不变），后补的 V3 用 UPDATE 把
+ * {@code run_command.timeout.seconds} 提升到 1800（ssh-connection spec）；全新库迁移后
+ * {@code settings} 表里可见的<b>有效值</b>因此是「V1 种子被 V3 覆盖后的值」——
+ * 解析时漏掉 V3 会把旧值 60 当成期望值反向钉死，漂移又多了一层 camouflage。</p>
+ *
  * <p>WHY 用 Spring 自己的 {@link Binder} 解析 yml，而不是自己把 {@code "15s"} 转成
  * {@link Duration}：自己实现一遍时长换算，等于用第二份逻辑验证第一份逻辑，
- * 两份同时写错时测试照样绿。走 {@code YamlPropertySourceLoader} + {@link Binder}
+ * 两份同时写错时测试照样绿。走 {@code YamlPropertySourceLoader} + {@code Binder}
  * 得到的就是应用启动后<b>真正注入</b>的那个对象。</p>
  *
  * <p>WHY 不启动 Spring 上下文：本测试比对的是"配置文件里写了什么"，
@@ -45,7 +50,11 @@ class SshPropertiesDefaultsTest {
     private static final Pattern SETTINGS_ROW =
             Pattern.compile("^\\s*\\('([^']+)',\\s*'([^']+)',\\s*'([^']+)',", Pattern.MULTILINE);
 
-    /** V1 迁移里与 SshProperties 语义重叠的三个 settings 键。 */
+    /** UPDATE 迁移的形状：{@code setting_value = '...' ... WHERE setting_key = '...'}。 */
+    private static final Pattern SETTINGS_UPDATE =
+            Pattern.compile("setting_value\\s*=\\s*'([^']+)'[\\s\\S]*?setting_key\\s*=\\s*'([^']+)'");
+
+    /** 迁移里与 SshProperties 语义重叠的三个 settings 键。 */
     private static final String KEY_CONNECT_TIMEOUT = "ssh.connect.timeout.seconds";
     private static final String KEY_RUN_COMMAND_TIMEOUT = "run_command.timeout.seconds";
     private static final String KEY_MAX_OUTPUT_BYTES = "run_command.max_output_bytes";
@@ -54,20 +63,24 @@ class SshPropertiesDefaultsTest {
 
     @BeforeAll
     static void loadSettingsSeed() throws IOException {
-        settingsSeed = parseSettingsSeed(readClasspath("db/migration/V1__init_schema.sql"));
+        Map<String, String> seed = parseSettingsSeed(readClasspath("db/migration/V1__init_schema.sql"));
+        // WHY 叠加 V3 的 UPDATE：已发布的 V1 不回写，后补迁移才是当前有效值；
+        // 全新库迁移后 settings 表的取值 = V1 种子被 V3 覆盖后的值
+        applyUpdateOverrides(seed, readClasspath("db/migration/V3__update_run_command_timeout.sql"));
+        settingsSeed = seed;
         // WHY 先断言解析结果非空：若某天迁移文件的书写格式变了、正则匹配不到任何行，
         // 后面所有比对都会在"空 map"上进行——取值全为 null，断言全部退化
         assertThat(settingsSeed)
-                .as("必须从 V1 迁移里解析出 settings 种子行")
+                .as("必须从 V1 + V3 迁移里解析出 settings 有效值")
                 .containsKeys(KEY_CONNECT_TIMEOUT, KEY_RUN_COMMAND_TIMEOUT, KEY_MAX_OUTPUT_BYTES);
     }
 
     // ======================================================================
-    // Java 字段默认值 ↔ settings 种子行
+    // Java 字段默认值 ↔ settings 有效值
     // ======================================================================
 
     @Test
-    @DisplayName("SshProperties 的字段默认值 == settings 表的种子行")
+    @DisplayName("SshProperties 的字段默认值 == 迁移落库后的 settings 有效值")
     void javaDefaultsMatchSettingsSeed() {
         SshProperties defaults = new SshProperties();
 
@@ -83,11 +96,11 @@ class SshPropertiesDefaultsTest {
     }
 
     // ======================================================================
-    // application.yml ↔ settings 种子行
+    // application.yml ↔ settings 有效值
     // ======================================================================
 
     @Test
-    @DisplayName("application.yml 里 ananoesis.ssh.* 的生效值 == settings 表的种子行")
+    @DisplayName("application.yml 里 ananoesis.ssh.* 的生效值 == 迁移落库后的 settings 有效值")
     void applicationYamlMatchesSettingsSeed() {
         SshProperties bound = bindFromApplicationYaml();
 
@@ -189,6 +202,17 @@ class SshPropertiesDefaultsTest {
         return seed;
     }
 
+    /**
+     * 把 UPDATE 型迁移叠加到种子 map 上：后写的迁移才是当前有效值。
+     * WHY 与 Flyway 的执行顺序一致：V1 先 INSERT，V3 再 UPDATE 覆盖同键。
+     */
+    private static void applyUpdateOverrides(Map<String, String> seed, String updateSql) {
+        Matcher matcher = SETTINGS_UPDATE.matcher(updateSql);
+        while (matcher.find()) {
+            seed.put(matcher.group(2), matcher.group(1));
+        }
+    }
+
     private static long seedSeconds(String key) {
         return Long.parseLong(seedValue(key));
     }
@@ -199,7 +223,7 @@ class SshPropertiesDefaultsTest {
 
     private static String seedValue(String key) {
         String value = settingsSeed.get(key);
-        assertThat(value).as("settings 种子行里应有 %s", key).isNotNull();
+        assertThat(value).as("settings 有效值里应有 %s", key).isNotNull();
         return value;
     }
 

@@ -99,7 +99,7 @@ ananoesis:
   #
   # 已知漂移风险（须在设置模块落地时消除）：connect-timeout / exec-timeout /
   #   exec-max-output-bytes 三项与 V1 迁移预置的 settings 行语义重叠
-  #   （ssh.connect.timeout.seconds=15、run_command.timeout.seconds=60、
+  #   （ssh.connect.timeout.seconds=15、run_command.timeout.seconds=1800、
   #   run_command.max_output_bytes=65536）。settings 表的 REST 管理属后续 Wave；
   #   届时本段应改为"启动取默认、运行期以 DB 值为准"，否则用户在设置界面改了超时却不生效。
   #   当前两份值由 SshPropertiesDefaultsTest 钉住一致。
@@ -112,7 +112,7 @@ ananoesis:
     #   通道数据流用的是无超时等待，因此空闲的交互式终端不会被它误杀。
     connect-timeout: 15s
     # exec 通道单条命令的执行时限：防止 tail -f 这类永不退出的命令挂死 AI 的工具调用
-    exec-timeout: 60s
+    exec-timeout: 1800s
     # exec 通道 stdout/stderr 各自的采集上限（字节）；超限截断并在结果里标记 truncated
     exec-max-output-bytes: 65536
     # 交互式终端的空闲回收时限。用户直接关掉标签页时前端来不及发 action=close，

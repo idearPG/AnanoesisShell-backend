@@ -30,7 +30,7 @@ public class TransferProperties {
     private int readyTimeoutSeconds = 30;
 
     /** transferring 状态无进度超时（秒）：连续此时间无字节进展则判定失败。 */
-    private int progressTimeoutSeconds = 120;
+    private int progressTimeoutSeconds = 300;
 
     /** 上传缓冲区大小（字节），默认 64 KiB。 */
     private int uploadBufferSize = 64 * 1024;

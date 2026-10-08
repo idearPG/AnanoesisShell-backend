@@ -252,4 +252,14 @@ class AgentSystemPromptTest {
         assertThat(ToolName.fromValue("system_info")).isEqualTo(ToolName.SYSTEM_INFO);
         assertThat(ToolName.fromValue("run_command")).isEqualTo(ToolName.RUN_COMMAND);
     }
+
+    @Test
+    @DisplayName("提示引导模型用 wc -l + read_file 分块 + grep -n 策略处理大文件（D4/D5）")
+    void promptGuidesLargeFileReadingStrategy() {
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false);
+        assertThat(prompt).contains("wc -l");
+        assertThat(prompt).contains("start_line").contains("end_line");
+        assertThat(prompt).contains("grep -n");
+    }
+
 }

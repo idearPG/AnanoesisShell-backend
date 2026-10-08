@@ -23,7 +23,7 @@ import org.slf4j.LoggerFactory;
  *   <li>人工半行/粘贴/全屏/嵌套 Shell 时不注入 Agent 字节</li>
  *   <li>只有确认空提示符（{@code manual_idle}）才领取输入权</li>
  *   <li>串行执行：读到可靠完成帧（{@code CMD_END} + {@code PROMPT}）才允许下一个</li>
- *   <li>空闲超时（默认 60 秒无输出/无帧活动）+ 30 分钟绝对上限兜底 +
+ *   <li>空闲超时（默认 120 秒无输出/无帧活动，ssh-connection spec 心跳检测）+ 30 分钟绝对上限兜底 +
  *       64 KiB 采集上限（BUG-A 改造：分钟级安装命令持续输出时不得被误杀）</li>
  *   <li>超限继续排空、仅丢弃超额采集内容</li>
  *   <li>中断后 3 秒无完成证据 → {@code unknown}</li>
@@ -40,10 +40,11 @@ public class PtyCommandScheduler {
 
     private static final Logger LOG = LoggerFactory.getLogger(PtyCommandScheduler.class);
 
-    /** design.md D3：60 秒无活动（空闲）超时。命令持续有输出即视为存活，
-     *  超过此间隔无任何输出/帧才中断（BUG-A：旧语义为绝对超时，
-     *  安装 JDK 等分钟级命令被误杀）。 */
-    static final long DEFAULT_TIMEOUT_MS = 60_000;
+    /** ssh-connection spec：空闲超时（无 stdout/stderr 输出）SHALL 为 120 秒，作为心跳检测。
+     *  命令持续有输出即视为存活，连续 120 秒无任何输出/帧才中断
+     *  （BUG-A：旧语义为固定 60 秒绝对超时，安装 JDK 等分钟级命令被误杀；
+     *  v0.2.0 由 60 秒提升为 120 秒，与 spec 心跳检测对齐）。 */
+    static final long DEFAULT_TIMEOUT_MS = 120_000;
 
     /** design.md D3：中断后 3 秒无完成证据 → unknown。 */
     static final long DEFAULT_INTERRUPT_WATCH_MS = 3_000;

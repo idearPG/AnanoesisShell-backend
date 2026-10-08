@@ -14,7 +14,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * <p><b>已知漂移风险（须在设置模块落地时消除）</b>：下面三个默认值刻意与
  * {@code V1__init_schema.sql} 预置的 settings 行一一对应
- * （{@code ssh.connect.timeout.seconds=15}、{@code run_command.timeout.seconds=60}、
+ * （{@code ssh.connect.timeout.seconds=15}、{@code run_command.timeout.seconds=1800}、
  * {@code run_command.max_output_bytes=65536}）。settings 表的 REST 管理属后续 Wave，
  * 届时本类应改为"启动读默认、运行期以 DB 值为准"，否则用户在设置界面改了超时却不生效。
  * 目前两份值靠本注释与 {@code SshPropertiesDefaultsTest} 保持一致。</p>
@@ -25,8 +25,8 @@ public class SshProperties {
     /** 建立 TCP 连接 + 完成 SSH 握手与认证的总时限。超时按「主机不可达」上报。 */
     private Duration connectTimeout = Duration.ofSeconds(15);
 
-    /** exec 通道单条命令的执行时限（design.md D4：防止 {@code tail -f} 挂死）。 */
-    private Duration execTimeout = Duration.ofSeconds(60);
+    /** exec 通道单条命令的执行时限（design.md D4：防止 {@code tail -f} 挂死）。run_command.timeout.seconds=1800 */
+    private Duration execTimeout = Duration.ofSeconds(1800);
 
     /** exec 通道单条命令的 stdout/stderr 采集上限（字节），超限截断并标记。 */
     private int execMaxOutputBytes = 65_536;
