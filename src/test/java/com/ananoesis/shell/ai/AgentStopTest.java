@@ -6,16 +6,16 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.entity.AiRun;
-import com.ananoesis.shell.mapper.AiRunMapper;
-import com.ananoesis.shell.service.AgentRunService;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.entity.AiRun;
+import com.ananoesis.shell.mapper.AiRunMapper;
+import com.ananoesis.shell.service.AgentRunService;
 
 /**
  * 停止机制（tasks 6.6）——验证取消代次与停止流程。

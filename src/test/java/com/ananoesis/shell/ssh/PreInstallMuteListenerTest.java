@@ -1,10 +1,10 @@
 package com.ananoesis.shell.ssh;
 
-import com.ananoesis.shell.support.SshTestDoubles.RecordingTerminalListener;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.support.SshTestDoubles.RecordingTerminalListener;
 
 /**
  * {@link PreInstallMuteListener} 的行为契约（known-issues #19 修复的组件级 RED）。

@@ -4,6 +4,8 @@ import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,9 +20,6 @@ import com.ananoesis.shell.entity.Host;
 import com.ananoesis.shell.entity.Setting;
 import com.ananoesis.shell.entity.SshSession;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * tasks 3.3 的验收：7 张表各自的 MyBatis-Plus Mapper 最小 CRUD 可用。

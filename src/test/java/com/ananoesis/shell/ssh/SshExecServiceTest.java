@@ -4,17 +4,17 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.UUID;
 
-import com.ananoesis.shell.support.FakeSshServer;
-import com.ananoesis.shell.support.SshTestDoubles.FixedTargetResolver;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.ananoesis.shell.support.FakeSshServer;
+import com.ananoesis.shell.support.SshTestDoubles.FixedTargetResolver;
 import static com.ananoesis.shell.support.TestWait.until;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * task 6.5：独立于 PTY 的 exec channel 原语。

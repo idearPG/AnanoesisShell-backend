@@ -8,6 +8,16 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.approval.ApprovalAuditService;
 import com.ananoesis.shell.approval.ApprovalGate;
@@ -29,17 +39,6 @@ import com.ananoesis.shell.support.StaticObjectProvider;
 import com.ananoesis.shell.support.StubChatModelProvider;
 import com.ananoesis.shell.ws.AiStreamFrame;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 上下文超限恢复集成测试（design D7 "单次恢复"段，tasks 9.2 / 9.3）。

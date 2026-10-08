@@ -7,11 +7,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.ananoesis.shell.ai.AiAgentService;
-import com.ananoesis.shell.ai.AiStreamEmitter;
-import com.ananoesis.shell.ai.TurnRequest;
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -21,6 +16,12 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.SessionLimitExceededException;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import com.ananoesis.shell.ai.AiAgentService;
+import com.ananoesis.shell.ai.AiStreamEmitter;
+import com.ananoesis.shell.ai.TurnRequest;
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * {@code /ai} 通道的协议处理器（tasks 7.4 / 9.4）。

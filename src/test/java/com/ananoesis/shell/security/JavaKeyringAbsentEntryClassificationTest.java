@@ -2,12 +2,12 @@ package com.ananoesis.shell.security;
 
 import java.io.IOException;
 
-import com.github.javakeyring.PasswordAccessException;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.github.javakeyring.PasswordAccessException;
 
 /**
  * 对"条目不存在 vs 后端故障"分类逻辑的确定性单测。

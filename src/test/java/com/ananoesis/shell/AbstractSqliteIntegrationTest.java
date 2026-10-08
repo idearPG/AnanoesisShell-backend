@@ -8,11 +8,12 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-import com.ananoesis.shell.security.TestSecurityConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+
+import com.ananoesis.shell.security.TestSecurityConfiguration;
 
 /**
  * SQLite 集成测试基类：把用户数据目录重定向到 {@code target/test-data/} 下的一次性目录，

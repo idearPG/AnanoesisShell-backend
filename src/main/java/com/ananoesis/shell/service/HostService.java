@@ -4,6 +4,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.ananoesis.shell.contract.model.AuthType;
 import com.ananoesis.shell.contract.model.Host;
 import com.ananoesis.shell.mapper.HostMapper;
@@ -12,10 +17,6 @@ import com.ananoesis.shell.security.CredentialType;
 import com.ananoesis.shell.security.SecretText;
 import com.ananoesis.shell.service.InvalidRequestException.FieldViolation;
 import com.ananoesis.shell.support.EntityIds;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 服务器配置的业务规则与凭据编排（tasks 5.1）。

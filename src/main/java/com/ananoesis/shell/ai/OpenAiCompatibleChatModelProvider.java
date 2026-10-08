@@ -6,12 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import com.ananoesis.shell.ai.ModelEndpointResolver.ResolvedEndpoint;
-import com.ananoesis.shell.contract.model.OutputLimitField;
-import com.ananoesis.shell.contract.model.ThinkingMode;
-import com.ananoesis.shell.contract.model.ThinkingRequestFormat;
-import com.ananoesis.shell.security.SecretText;
-import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.model.tool.ToolCallingManager;
@@ -22,6 +16,12 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
+
+import com.ananoesis.shell.ai.ModelEndpointResolver.ResolvedEndpoint;
+import com.ananoesis.shell.contract.model.ThinkingRequestFormat;
+import com.ananoesis.shell.security.SecretText;
+
+import io.micrometer.observation.ObservationRegistry;
 
 /**
  * OpenAI 兼容端点的 {@link ChatModel} 装配器（design D2/D5，tasks 7.2）。

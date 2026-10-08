@@ -2,11 +2,12 @@ package com.ananoesis.shell.ssh;
 
 import java.util.Objects;
 
-import com.ananoesis.shell.config.SshProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import com.ananoesis.shell.config.SshProperties;
 
 /**
  * 终端会话的空闲回收定时器（task 6.6：超时释放资源）。

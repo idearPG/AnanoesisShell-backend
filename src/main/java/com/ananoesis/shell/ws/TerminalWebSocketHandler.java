@@ -7,17 +7,6 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.security.CredentialProtectionException;
-import com.ananoesis.shell.service.NotFoundException;
-import com.ananoesis.shell.ssh.PtyCommandScheduler;
-import com.ananoesis.shell.ssh.SshCloseReason;
-import com.ananoesis.shell.ssh.SshConnectException;
-import com.ananoesis.shell.ssh.SshTerminalService;
-import com.ananoesis.shell.ssh.SshTerminalSession;
-import com.ananoesis.shell.ssh.SessionRuntime;
-import com.ananoesis.shell.ssh.TerminalOutputListener;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -27,6 +16,17 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.SessionLimitExceededException;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.security.CredentialProtectionException;
+import com.ananoesis.shell.service.NotFoundException;
+import com.ananoesis.shell.ssh.PtyCommandScheduler;
+import com.ananoesis.shell.ssh.SessionRuntime;
+import com.ananoesis.shell.ssh.SshCloseReason;
+import com.ananoesis.shell.ssh.SshConnectException;
+import com.ananoesis.shell.ssh.SshTerminalService;
+import com.ananoesis.shell.ssh.TerminalOutputListener;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * {@code /terminal} 通道的协议处理器（task 6.3 的 WebSocket 侧 + Wave 2 resize/bind）。

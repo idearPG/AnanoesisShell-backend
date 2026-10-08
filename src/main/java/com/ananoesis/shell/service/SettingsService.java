@@ -3,14 +3,15 @@ package com.ananoesis.shell.service;
 import java.util.Objects;
 import java.util.Optional;
 
-import com.ananoesis.shell.contract.model.Settings;
-import com.ananoesis.shell.contract.model.ThinkingMode;
-import com.ananoesis.shell.entity.Setting;
-import com.ananoesis.shell.mapper.SettingMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.ananoesis.shell.contract.model.Settings;
+import com.ananoesis.shell.contract.model.ThinkingMode;
+import com.ananoesis.shell.entity.Setting;
+import com.ananoesis.shell.mapper.SettingMapper;
 
 /**
  * {@code settings} 表的业务读写（tasks 7.1 的设置侧）。

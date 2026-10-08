@@ -2,12 +2,11 @@ package com.ananoesis.shell.security;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
  * tasks 4.1 的真实后端验证：{@code java-keyring} 适配器确实能对接当前操作系统的密钥库

@@ -1,10 +1,10 @@
 package com.ananoesis.shell.ai;
 
-import com.ananoesis.shell.ws.ToolName;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.ws.ToolName;
 
 /**
  * {@link AgentSystemPrompt} 的行为约束断言（tasks 9.2 / 9.3 / 9.5）。

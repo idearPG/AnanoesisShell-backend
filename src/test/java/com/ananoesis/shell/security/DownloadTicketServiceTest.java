@@ -2,14 +2,14 @@ package com.ananoesis.shell.security;
 
 import java.time.LocalDateTime;
 
-import com.ananoesis.shell.config.TransferProperties;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.ananoesis.shell.config.TransferProperties;
 
 /**
  * 下载票据服务的安全测试（design.md D9）。

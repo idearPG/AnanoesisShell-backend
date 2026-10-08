@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.lang.Nullable;
+import org.springframework.stereotype.Service;
+
 import com.ananoesis.shell.contract.model.Session;
 import com.ananoesis.shell.contract.model.SessionStatus;
 import com.ananoesis.shell.entity.Host;
@@ -14,8 +17,6 @@ import com.ananoesis.shell.mapper.SshSessionMapper;
 import com.ananoesis.shell.ssh.SshCloseReason;
 import com.ananoesis.shell.support.Timestamps;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import org.springframework.lang.Nullable;
-import org.springframework.stereotype.Service;
 
 /**
  * 连接会话审计的只读查询（契约 {@code GET /api/sessions}；ssh-connection spec「连接会话生命周期」）。

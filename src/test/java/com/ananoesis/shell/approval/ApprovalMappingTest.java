@@ -4,13 +4,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import com.ananoesis.shell.contract.model.ApprovalDecision;
-import com.ananoesis.shell.ws.ToolName;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.ananoesis.shell.contract.model.ApprovalDecision;
+import com.ananoesis.shell.ws.ToolName;
 
 /**
  * 审批子系统的<b>取值域换算</b>与<b>入口守卫</b>（tasks 8.1 / 8.2 / 8.3 / 8.5）。

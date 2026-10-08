@@ -15,6 +15,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.SystemMessage;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
+import org.springframework.web.client.ResourceAccessException;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.approval.ApprovalAuditService;
 import com.ananoesis.shell.approval.ApprovalGate;
@@ -37,28 +53,12 @@ import com.ananoesis.shell.support.RecordingAiStreamEmitter;
 import com.ananoesis.shell.support.ScriptedChatModel;
 import com.ananoesis.shell.support.StaticObjectProvider;
 import com.ananoesis.shell.support.StubChatModelProvider;
+import static com.ananoesis.shell.support.TestWait.until;
 import com.ananoesis.shell.ws.AiStreamFrame;
 import com.ananoesis.shell.ws.ApprovalResponseFrame;
 import com.ananoesis.shell.ws.ToolCallEventFrame;
 import com.ananoesis.shell.ws.ToolName;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.lang.Nullable;
-import org.springframework.web.client.ResourceAccessException;
-
-import static com.ananoesis.shell.support.TestWait.until;
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 智能体回合循环的核心行为（tasks 7.2 / 7.3 / 7.4 / 9.1 / 9.2 / 9.4 / 9.5）。

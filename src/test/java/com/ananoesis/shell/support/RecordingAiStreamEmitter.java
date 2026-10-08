@@ -5,10 +5,11 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.springframework.lang.Nullable;
+
 import com.ananoesis.shell.ai.AiStreamEmitter;
 import com.ananoesis.shell.ws.AiStreamFrame;
 import com.ananoesis.shell.ws.ToolCallEventFrame;
-import org.springframework.lang.Nullable;
 
 /**
  * 收集 {@code ai_stream} 出站帧的替身（tasks 7.3 / 7.4 / 9.5 的断言基座）。

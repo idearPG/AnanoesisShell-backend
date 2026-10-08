@@ -3,6 +3,7 @@ package com.ananoesis.shell.ai;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -12,8 +13,6 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 上下文 token 估算器（design D7 步骤 5，tasks 8.3）。

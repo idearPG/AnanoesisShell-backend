@@ -3,12 +3,13 @@ package com.ananoesis.shell.ws;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.lang.Nullable;
+
 import com.ananoesis.shell.contract.model.ToolResultStatus;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
-import org.springframework.lang.Nullable;
 
 /**
  * {@code tool_call} 事件明细（asyncapi.yaml {@code components/schemas/ToolCallEvent}）。

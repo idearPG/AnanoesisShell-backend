@@ -2,16 +2,17 @@ package com.ananoesis.shell.controller;
 
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ananoesis.shell.contract.api.TransfersApi;
 import com.ananoesis.shell.contract.model.CreateTransferRequest;
 import com.ananoesis.shell.contract.model.DownloadTicket;
 import com.ananoesis.shell.contract.model.Transfer;
 import com.ananoesis.shell.service.TransferService;
 import com.ananoesis.shell.ssh.SshTerminalService;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/sessions/{id}/transfers} 与 {@code /api/transfers/{id}} 的 REST 实现（design.md D9）。

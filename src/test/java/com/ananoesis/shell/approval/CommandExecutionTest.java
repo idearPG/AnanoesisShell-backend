@@ -1,11 +1,11 @@
 package com.ananoesis.shell.approval;
 
-import com.ananoesis.shell.contract.model.ToolResultStatus;
-import com.ananoesis.shell.ssh.ExecOutcome;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.contract.model.ToolResultStatus;
+import com.ananoesis.shell.ssh.ExecOutcome;
 
 /**
  * {@link CommandExecution} 的三向映射与脱敏（tasks 8.2 / 8.4 / 8.5）。

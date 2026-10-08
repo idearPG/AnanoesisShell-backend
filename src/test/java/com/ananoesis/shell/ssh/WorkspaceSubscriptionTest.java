@@ -1,18 +1,17 @@
 package com.ananoesis.shell.ssh;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import com.ananoesis.shell.ssh.SessionRuntimeTest.StubTerminalSession;
 import com.ananoesis.shell.ssh.SessionRuntimeTest.StubOutputListener;
+import com.ananoesis.shell.ssh.SessionRuntimeTest.StubTerminalSession;
 
 /**
  * Workspace event subscription tests (task 4.3).

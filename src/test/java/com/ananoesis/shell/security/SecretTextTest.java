@@ -1,10 +1,9 @@
 package com.ananoesis.shell.security;
 
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
 /**
  * tasks 4.4 的基础：明文凭据的内存载体必须做到"打印即掩码、用完即擦除"。

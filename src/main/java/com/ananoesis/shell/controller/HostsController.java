@@ -3,11 +3,12 @@ package com.ananoesis.shell.controller;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ananoesis.shell.contract.api.HostsApi;
 import com.ananoesis.shell.contract.model.Host;
 import com.ananoesis.shell.service.HostService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/hosts} 的 REST 实现（tasks 5.1）。

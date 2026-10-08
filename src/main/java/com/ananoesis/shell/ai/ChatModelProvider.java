@@ -2,9 +2,10 @@ package com.ananoesis.shell.ai;
 
 import java.util.List;
 
-import com.ananoesis.shell.contract.model.ThinkingMode;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
+
+import com.ananoesis.shell.contract.model.ThinkingMode;
 
 /**
  * 模型接入抽象（design D5 / tasks 7.2）：把"当前生效配置"变成可用的 {@link ChatModel}。

@@ -10,6 +10,14 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.contract.model.EndReason;
 import com.ananoesis.shell.contract.model.Error;
@@ -21,14 +29,6 @@ import com.ananoesis.shell.entity.SshSession;
 import com.ananoesis.shell.mapper.HostMapper;
 import com.ananoesis.shell.mapper.SshSessionMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@code GET /api/sessions} 的验收（ssh-connection spec「连接会话生命周期」）。

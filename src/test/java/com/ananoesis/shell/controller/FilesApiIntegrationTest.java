@@ -1,16 +1,8 @@
 package com.ananoesis.shell.controller;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.UUID;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.contract.model.Error;
-import com.ananoesis.shell.ssh.SftpTestServer;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +11,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.contract.model.Error;
 
 /**
  * FilesApiController 的集成测试（task 12.4）。

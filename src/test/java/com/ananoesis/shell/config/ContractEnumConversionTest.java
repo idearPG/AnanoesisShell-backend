@@ -6,8 +6,8 @@ import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,8 +17,8 @@ import org.springframework.core.convert.ConversionService;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * 钉住「查询参数里的契约枚举按其<b>线上取值</b>解析」这条不变量。

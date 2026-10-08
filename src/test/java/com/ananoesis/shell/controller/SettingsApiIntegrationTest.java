@@ -7,13 +7,7 @@ import java.sql.SQLException;
 
 import javax.sql.DataSource;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.contract.model.Error;
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.contract.model.Settings;
-import com.ananoesis.shell.contract.model.ThinkingMode;
-import com.ananoesis.shell.service.SettingsService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,7 +20,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.contract.model.Error;
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.contract.model.Settings;
+import com.ananoesis.shell.contract.model.ThinkingMode;
+import com.ananoesis.shell.service.SettingsService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * tasks 7.1 的验收（设置侧）：{@code /api/settings} 的全局默认思考模式读写。

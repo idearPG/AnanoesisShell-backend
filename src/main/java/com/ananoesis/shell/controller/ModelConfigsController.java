@@ -3,12 +3,13 @@ package com.ananoesis.shell.controller;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ananoesis.shell.contract.api.ModelConfigsApi;
 import com.ananoesis.shell.contract.model.ActiveModelConfigRequest;
 import com.ananoesis.shell.contract.model.ModelConfig;
 import com.ananoesis.shell.service.ModelConfigService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/model-configs} 的 HTTP 适配层（tasks 7.1）。

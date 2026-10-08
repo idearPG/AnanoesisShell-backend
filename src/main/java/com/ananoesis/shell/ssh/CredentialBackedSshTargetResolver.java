@@ -4,6 +4,10 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
 import com.ananoesis.shell.contract.model.AuthType;
 import com.ananoesis.shell.security.CredentialOwnerType;
 import com.ananoesis.shell.security.CredentialType;
@@ -11,9 +15,6 @@ import com.ananoesis.shell.security.SecretText;
 import com.ananoesis.shell.service.CredentialStoreService;
 import com.ananoesis.shell.service.HostService;
 import com.ananoesis.shell.service.HostService.HostTarget;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 /**
  * 生产实现：hostId → 主机配置 + 内存解密后的凭据（credential-store spec「凭据使用时解密」）。

@@ -4,9 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-import com.ananoesis.shell.ws.AiWebSocketHandler;
-import com.ananoesis.shell.ws.ApprovalWebSocketHandler;
-import com.ananoesis.shell.ws.TerminalWebSocketHandler;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +11,10 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
+
+import com.ananoesis.shell.ws.AiWebSocketHandler;
+import com.ananoesis.shell.ws.ApprovalWebSocketHandler;
+import com.ananoesis.shell.ws.TerminalWebSocketHandler;
 
 /**
  * WebSocket 端点注册（tasks 6.3 / 8.1 / 9.4；契约 {@code asyncapi.yaml} 的

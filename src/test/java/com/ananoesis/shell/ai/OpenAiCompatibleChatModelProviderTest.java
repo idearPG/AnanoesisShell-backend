@@ -4,11 +4,8 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
-import com.ananoesis.shell.contract.model.OutputLimitField;
-import com.ananoesis.shell.contract.model.ThinkingMode;
-import com.ananoesis.shell.contract.model.ThinkingRequestFormat;
-import com.ananoesis.shell.security.MissingModelApiKeyException;
-import com.ananoesis.shell.security.SecretText;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,8 +15,11 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.ananoesis.shell.contract.model.OutputLimitField;
+import com.ananoesis.shell.contract.model.ThinkingMode;
+import com.ananoesis.shell.contract.model.ThinkingRequestFormat;
+import com.ananoesis.shell.security.MissingModelApiKeyException;
+import com.ananoesis.shell.security.SecretText;
 
 /**
  * tasks 7.2 的验收：运行时**手动**装配 OpenAI 兼容的 {@link ChatModel}。

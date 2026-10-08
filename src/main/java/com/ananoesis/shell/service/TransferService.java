@@ -2,13 +2,15 @@ package com.ananoesis.shell.service;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
 
 import com.ananoesis.shell.config.TransferProperties;
 import com.ananoesis.shell.contract.model.CreateTransferRequest;
@@ -21,15 +23,12 @@ import com.ananoesis.shell.security.DownloadTicketService;
 import com.ananoesis.shell.ssh.SessionRuntime;
 import com.ananoesis.shell.ssh.SshTerminalService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.sftp.FileAttributes;
-import net.schmizz.sshj.sftp.FileMode;
 import net.schmizz.sshj.sftp.OpenMode;
 import net.schmizz.sshj.sftp.RemoteFile;
 import net.schmizz.sshj.sftp.SFTPClient;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 /**
  * 文件传输调度与状态机（design.md D9「SFTP 传输」）。

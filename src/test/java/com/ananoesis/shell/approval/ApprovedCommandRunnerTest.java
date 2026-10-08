@@ -14,6 +14,16 @@ import java.util.function.Function;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.config.SshProperties;
 import com.ananoesis.shell.contract.model.ConversationCreate;
@@ -36,16 +46,6 @@ import com.ananoesis.shell.support.FakeSshServer;
 import com.ananoesis.shell.support.SshTestDoubles;
 import com.ananoesis.shell.ws.ToolName;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 已批准命令的执行与输出约束（tasks 8.2 / 8.4 / 8.5）。

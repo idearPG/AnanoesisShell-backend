@@ -6,16 +6,16 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.entity.CommandExecution;
-import com.ananoesis.shell.mapper.CommandExecutionMapper;
-import com.ananoesis.shell.service.CommandExecutionService;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.entity.CommandExecution;
+import com.ananoesis.shell.mapper.CommandExecutionMapper;
+import com.ananoesis.shell.service.CommandExecutionService;
 
 /**
  * 审计查询与脱敏（tasks 6.7）——验证最终命令/版本/目标快照查询及敏感值遮蔽。

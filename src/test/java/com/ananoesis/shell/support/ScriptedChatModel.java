@@ -13,6 +13,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.lang.Nullable;
+
 import reactor.core.publisher.Flux;
 
 /**

@@ -9,12 +9,7 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.contract.model.AuthType;
-import com.ananoesis.shell.contract.model.Error;
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.contract.model.Host;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +21,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.contract.model.AuthType;
+import com.ananoesis.shell.contract.model.Error;
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.contract.model.Host;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * tasks 5.1 的验收：{@code /api/hosts} 的 REST CRUD 与凭据密文化。

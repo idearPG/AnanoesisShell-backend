@@ -16,14 +16,16 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.ananoesis.shell.service.SettingsService;
-import com.ananoesis.shell.support.EntityIds;
-import com.ananoesis.shell.ws.ApprovalResponseFrame;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
+
+import com.ananoesis.shell.service.SettingsService;
+import com.ananoesis.shell.support.EntityIds;
+import com.ananoesis.shell.ws.ApprovalResponseFrame;
+
+import jakarta.annotation.PreDestroy;
 
 /**
  * 命令审批闸门（tasks 8.1 / 8.3 / 6.4 / 6.5）——副作用工具与远端 shell 之间<b>唯一</b>的通路。

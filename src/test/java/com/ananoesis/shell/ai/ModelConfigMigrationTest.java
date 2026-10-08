@@ -3,8 +3,14 @@
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.List;
 
 import javax.sql.DataSource;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.contract.model.ModelConfig;
@@ -12,13 +18,6 @@ import com.ananoesis.shell.contract.model.OutputLimitField;
 import com.ananoesis.shell.contract.model.ThinkingRequestFormat;
 import com.ananoesis.shell.service.ModelConfigService;
 import com.ananoesis.shell.service.ModelConfigService.ActiveModelConfig;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 旧模型配置的幂等迁移验证（tasks 8.2 / design D8）。

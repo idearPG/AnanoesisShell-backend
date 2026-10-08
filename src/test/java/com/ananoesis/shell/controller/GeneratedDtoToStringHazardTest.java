@@ -1,11 +1,11 @@
 package com.ananoesis.shell.controller;
 
-import com.ananoesis.shell.contract.model.AuthType;
-import com.ananoesis.shell.contract.model.Host;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.contract.model.AuthType;
+import com.ananoesis.shell.contract.model.Host;
 
 /**
  * 特征化测试（characterization test）：锁定 openapi-generator 生成物中一个**已知的不安全行为**，

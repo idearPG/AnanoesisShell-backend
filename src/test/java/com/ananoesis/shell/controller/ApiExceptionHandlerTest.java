@@ -3,13 +3,7 @@ package com.ananoesis.shell.controller;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import com.ananoesis.shell.contract.model.Error;
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.contract.model.Host;
-import com.ananoesis.shell.contract.api.HostsApi;
-import com.ananoesis.shell.security.CredentialProtectionException;
-import com.ananoesis.shell.service.HostNotFoundException;
-import com.ananoesis.shell.service.InvalidRequestException;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
@@ -19,7 +13,13 @@ import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.contract.api.HostsApi;
+import com.ananoesis.shell.contract.model.Error;
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.contract.model.Host;
+import com.ananoesis.shell.security.CredentialProtectionException;
+import com.ananoesis.shell.service.HostNotFoundException;
+import com.ananoesis.shell.service.InvalidRequestException;
 
 /**
  * 领域异常 → 契约错误响应的映射表（tasks 5.1 的错误路径部分）。

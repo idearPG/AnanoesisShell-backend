@@ -14,13 +14,12 @@ import java.util.Set;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * V1→V2 迁移验收：嵌入式 SQLite 落在用户数据目录、启用 WAL、Flyway V1+V2 建齐全部业务表。

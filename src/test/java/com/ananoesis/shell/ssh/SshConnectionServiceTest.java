@@ -7,19 +7,20 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.support.FakeSshServer;
-import net.schmizz.sshj.SSHClient;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.support.FakeSshServer;
 import static com.ananoesis.shell.support.TestWait.until;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowableOfType;
+
+import net.schmizz.sshj.SSHClient;
 
 /**
  * tasks 6.1 / 6.2：SSH 连接与认证。

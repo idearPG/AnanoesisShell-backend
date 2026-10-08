@@ -9,6 +9,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.ananoesis.shell.contract.model.ModelConfig;
 import com.ananoesis.shell.contract.model.OutputLimitField;
 import com.ananoesis.shell.contract.model.ThinkingMode;
@@ -26,10 +31,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 模型配置的业务规则与凭据编排（tasks 7.1 的配置侧、7.2 的取值来源）。

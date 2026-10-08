@@ -6,10 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import com.ananoesis.shell.entity.AiMessage;
-import com.ananoesis.shell.service.ConversationService;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -17,6 +13,11 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.lang.Nullable;
+
+import com.ananoesis.shell.entity.AiMessage;
+import com.ananoesis.shell.service.ConversationService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * 智能体上下文构建器（design D7 步骤 1-4，tasks 8.4/8.5/8.6）。

@@ -4,11 +4,8 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.UUID;
 
-import com.ananoesis.shell.support.FakeSshServer;
-import com.ananoesis.shell.support.SshTestDoubles.FixedTargetResolver;
-import com.ananoesis.shell.support.SshTestDoubles.InMemorySessionRecorder;
-import com.ananoesis.shell.support.SshTestDoubles.RecordingTerminalListener;
-import com.ananoesis.shell.support.TestWait;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -16,9 +13,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.ananoesis.shell.support.FakeSshServer;
+import com.ananoesis.shell.support.SshTestDoubles.FixedTargetResolver;
+import com.ananoesis.shell.support.SshTestDoubles.InMemorySessionRecorder;
+import com.ananoesis.shell.support.SshTestDoubles.RecordingTerminalListener;
+import com.ananoesis.shell.support.TestWait;
 import static com.ananoesis.shell.support.TestWait.until;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * tasks 6.3 / 6.6：交互式 PTY 通道与会话生命周期。

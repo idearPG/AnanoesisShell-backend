@@ -8,6 +8,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.lang.Nullable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.ananoesis.shell.contract.model.Approval;
 import com.ananoesis.shell.contract.model.ApprovalDecision;
 import com.ananoesis.shell.contract.model.ApprovalsPage;
@@ -20,11 +26,6 @@ import com.ananoesis.shell.support.Timestamps;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.lang.Nullable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@code approvals} 表的读写与审计装配（tasks 8.5 / 6.4）。

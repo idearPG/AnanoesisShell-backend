@@ -16,6 +16,14 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.contract.model.ConversationCreate;
 import com.ananoesis.shell.entity.Host;
@@ -26,14 +34,6 @@ import com.ananoesis.shell.support.TestWait;
 import com.ananoesis.shell.ws.ApprovalResponseFrame.Decision;
 import com.ananoesis.shell.ws.ToolName;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 审批闸门的挂起、裁决与超时（tasks 8.1 / 8.2 / 8.3 / 8.5）。

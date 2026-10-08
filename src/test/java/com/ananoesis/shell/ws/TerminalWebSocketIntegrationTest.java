@@ -13,16 +13,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.config.WebSocketConfiguration;
-import com.ananoesis.shell.contract.model.AuthType;
-import com.ananoesis.shell.contract.model.EndReason;
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.contract.model.Host;
-import com.ananoesis.shell.contract.model.Session;
-import com.ananoesis.shell.contract.model.SessionStatus;
-import com.ananoesis.shell.support.FakeSshServer;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -45,9 +37,17 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.config.WebSocketConfiguration;
+import com.ananoesis.shell.contract.model.AuthType;
+import com.ananoesis.shell.contract.model.EndReason;
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.contract.model.Host;
+import com.ananoesis.shell.contract.model.Session;
+import com.ananoesis.shell.contract.model.SessionStatus;
+import com.ananoesis.shell.support.FakeSshServer;
 import static com.ananoesis.shell.support.TestWait.until;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * {@code /ws/terminal} 的端到端验收（tasks 6.1 / 6.3 / 6.6，Q1 裁定）。

@@ -1,13 +1,13 @@
 package com.ananoesis.shell.ssh;
 
 import java.util.Objects;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-import com.ananoesis.shell.ssh.PtyCommandScheduler.CommandResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
+import com.ananoesis.shell.ssh.PtyCommandScheduler.CommandResult;
 
 /**
  * PTY 命令路由网关（task 5.5）。

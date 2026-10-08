@@ -4,23 +4,20 @@ import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.entity.AiConversation;
 import com.ananoesis.shell.entity.AiRun;
-import com.ananoesis.shell.entity.AiMessage;
 import com.ananoesis.shell.entity.CommandExecution;
 import com.ananoesis.shell.entity.FileTransfer;
 import com.ananoesis.shell.entity.Host;
 import com.ananoesis.shell.entity.SshSession;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * V2 新增实体（AiRun、CommandExecution、FileTransfer）的 MyBatis-Plus Mapper 最小 CRUD 验收。

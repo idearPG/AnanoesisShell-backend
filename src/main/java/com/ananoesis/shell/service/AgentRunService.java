@@ -4,14 +4,15 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 
-import com.ananoesis.shell.entity.AiRun;
-import com.ananoesis.shell.mapper.AiRunMapper;
-import com.ananoesis.shell.support.EntityIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.ananoesis.shell.entity.AiRun;
+import com.ananoesis.shell.mapper.AiRunMapper;
+import com.ananoesis.shell.support.EntityIds;
 
 /**
  * 运行账本服务（tasks 6.1 / 6.6）——管理 {@code ai_runs} 表的生命周期。

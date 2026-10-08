@@ -3,6 +3,7 @@ package com.ananoesis.shell.ai;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -10,8 +11,6 @@ import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.web.client.ResourceAccessException;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 上下文超限分类器测试（design D7 "单次恢复"段，tasks 9.1）。

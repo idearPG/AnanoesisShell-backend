@@ -14,19 +14,19 @@ import java.util.Optional;
 
 import javax.sql.DataSource;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.entity.Credential;
-import com.ananoesis.shell.mapper.CredentialMapper;
-import com.ananoesis.shell.service.CredentialStoreService;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.entity.Credential;
+import com.ananoesis.shell.mapper.CredentialMapper;
+import com.ananoesis.shell.service.CredentialStoreService;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 
 /**
  * tasks 4.2 的验收：凭据保存后 {@code credentials} 表仅存密文、无明文，解密可正确还原。

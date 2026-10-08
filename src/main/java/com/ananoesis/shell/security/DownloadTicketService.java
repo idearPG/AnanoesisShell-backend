@@ -9,10 +9,11 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.ananoesis.shell.config.TransferProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
+import com.ananoesis.shell.config.TransferProperties;
 
 /**
  * 下载票据服务（design.md D9「SFTP 传输」）。

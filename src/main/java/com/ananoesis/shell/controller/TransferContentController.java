@@ -6,9 +6,6 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
-import com.ananoesis.shell.service.TransferService;
-import com.ananoesis.shell.service.TransferService.DownloadResult;
-import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -21,6 +18,11 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import com.ananoesis.shell.service.TransferService;
+import com.ananoesis.shell.service.TransferService.DownloadResult;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * 二进制上传/下载的 HTTP 适配层（design.md D9「SFTP 传输」）。

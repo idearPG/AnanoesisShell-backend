@@ -2,11 +2,12 @@ package com.ananoesis.shell.ws;
 
 import java.util.UUID;
 
+import org.springframework.lang.Nullable;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
-import org.springframework.lang.Nullable;
 
 /**
  * {@code terminal_input} 消息载荷（asyncapi.yaml {@code components/schemas/TerminalInput}）。

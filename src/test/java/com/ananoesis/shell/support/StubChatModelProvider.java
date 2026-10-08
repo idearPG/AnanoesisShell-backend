@@ -3,12 +3,13 @@ package com.ananoesis.shell.support;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import com.ananoesis.shell.ai.ChatModelProvider;
-import com.ananoesis.shell.contract.model.ThinkingMode;
-import com.ananoesis.shell.security.MissingModelApiKeyException;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.lang.Nullable;
+
+import com.ananoesis.shell.ai.ChatModelProvider;
+import com.ananoesis.shell.contract.model.ThinkingMode;
+import com.ananoesis.shell.security.MissingModelApiKeyException;
 
 /**
  * {@link ChatModelProvider} 的替身：交出 {@link ScriptedChatModel}，并记录被要走了哪些工具。

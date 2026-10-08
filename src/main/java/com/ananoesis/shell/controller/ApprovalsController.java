@@ -2,13 +2,14 @@ package com.ananoesis.shell.controller;
 
 import java.util.UUID;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.lang.Nullable;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ananoesis.shell.approval.ApprovalAuditService;
 import com.ananoesis.shell.contract.api.ApprovalsApi;
 import com.ananoesis.shell.contract.model.ApprovalDecision;
 import com.ananoesis.shell.contract.model.ApprovalsPage;
-import org.springframework.http.ResponseEntity;
-import org.springframework.lang.Nullable;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/approvals} 的 HTTP 适配层（tasks 8.5）。

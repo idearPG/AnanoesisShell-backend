@@ -8,6 +8,16 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
+
 import com.ananoesis.shell.config.SshProperties;
 import com.ananoesis.shell.service.HostNotFoundException;
 import com.ananoesis.shell.ssh.SessionKind;
@@ -22,20 +32,10 @@ import com.ananoesis.shell.support.FakeSshServer;
 import com.ananoesis.shell.support.FakeWebSocketSession;
 import com.ananoesis.shell.support.SshTestDoubles.FixedTargetResolver;
 import com.ananoesis.shell.support.SshTestDoubles.InMemorySessionRecorder;
+import static com.ananoesis.shell.support.TestWait.until;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.TextMessage;
-
-import static com.ananoesis.shell.support.TestWait.until;
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * task 6.3 的传输层：{@code terminal_input} / {@code terminal_output} 的协议行为。

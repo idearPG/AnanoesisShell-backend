@@ -2,6 +2,21 @@ package com.ananoesis.shell.ssh;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.ArgumentMatchers.any;
+import org.mockito.Mock;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import org.mockito.junit.jupiter.MockitoExtension;
+
 import com.ananoesis.shell.config.TransferProperties;
 import com.ananoesis.shell.contract.model.Transfer;
 import com.ananoesis.shell.contract.model.TransferStatus;
@@ -10,19 +25,6 @@ import com.ananoesis.shell.mapper.FileTransferMapper;
 import com.ananoesis.shell.security.DownloadTicketService;
 import com.ananoesis.shell.service.NotFoundException;
 import com.ananoesis.shell.service.TransferService;
-import com.ananoesis.shell.ssh.SshTerminalService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 /**
  * 故障隔离与取消测试（design.md D9）。

@@ -1,8 +1,9 @@
 package com.ananoesis.shell.approval;
 
+import org.springframework.lang.Nullable;
+
 import com.ananoesis.shell.contract.model.ToolResultStatus;
 import com.ananoesis.shell.ssh.ExecOutcome;
-import org.springframework.lang.Nullable;
 
 /**
  * 一条<b>已获批准并执行完毕</b>的命令的结果（tasks 8.2 / 8.4）。

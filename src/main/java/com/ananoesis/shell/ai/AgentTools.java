@@ -1,13 +1,21 @@
 package com.ananoesis.shell.ai;
 
 import java.time.Duration;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
+import org.springframework.stereotype.Component;
 
 import com.ananoesis.shell.security.CredentialProtectionException;
 import com.ananoesis.shell.service.HostNotFoundException;
@@ -20,14 +28,6 @@ import com.ananoesis.shell.ssh.SshConnectException;
 import com.ananoesis.shell.ssh.SshExecService;
 import com.ananoesis.shell.support.TurnCancelledException;
 import com.ananoesis.shell.ws.ToolName;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.ai.tool.annotation.Tool;
-import org.springframework.ai.tool.annotation.ToolParam;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.lang.Nullable;
-import org.springframework.stereotype.Component;
 
 /**
  * 智能体可调用的工具集（tasks 9.2 / 9.3 / 9.4 / 9.5 / 5.5）。

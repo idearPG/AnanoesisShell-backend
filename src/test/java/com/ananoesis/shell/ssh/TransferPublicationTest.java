@@ -10,15 +10,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
-import com.ananoesis.shell.config.TransferProperties;
-import com.ananoesis.shell.entity.FileTransfer;
-import com.ananoesis.shell.mapper.FileTransferMapper;
-import com.ananoesis.shell.security.DownloadTicketService;
-import com.ananoesis.shell.service.TransferConflictException;
-import com.ananoesis.shell.service.TransferService;
-import com.ananoesis.shell.ssh.SshTerminalService;
-import net.schmizz.sshj.SSHClient;
-import net.schmizz.sshj.transport.verification.HostKeyVerifier;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,13 +19,22 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.ArgumentMatchers.any;
 import org.mockito.Mock;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import com.ananoesis.shell.config.TransferProperties;
+import com.ananoesis.shell.entity.FileTransfer;
+import com.ananoesis.shell.mapper.FileTransferMapper;
+import com.ananoesis.shell.security.DownloadTicketService;
+import com.ananoesis.shell.service.TransferConflictException;
+import com.ananoesis.shell.service.TransferService;
+
+import net.schmizz.sshj.SSHClient;
+import net.schmizz.sshj.transport.verification.HostKeyVerifier;
 
 /**
  * 上传发布与覆盖语义测试（design.md D9）。

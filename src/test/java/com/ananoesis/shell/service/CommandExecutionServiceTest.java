@@ -6,16 +6,15 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.entity.CommandExecution;
-import com.ananoesis.shell.mapper.CommandExecutionMapper;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.entity.CommandExecution;
+import com.ananoesis.shell.mapper.CommandExecutionMapper;
 
 /**
  * 命令执行账本服务（tasks 6.3）——验证执行领取、发送、完成及 unknown 标记。

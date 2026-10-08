@@ -6,9 +6,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import com.ananoesis.shell.approval.ApprovalGate;
-import com.ananoesis.shell.approval.ApprovalNotifier;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -18,6 +15,10 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.SessionLimitExceededException;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import com.ananoesis.shell.approval.ApprovalGate;
+import com.ananoesis.shell.approval.ApprovalNotifier;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * {@code /approval} 通道的协议处理器（tasks 8.1 / 8.2 / 6.4）。

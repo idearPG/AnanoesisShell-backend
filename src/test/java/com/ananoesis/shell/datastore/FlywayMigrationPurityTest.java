@@ -15,13 +15,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.output.MigrateResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 迁移脚本与默认配置的"无内置凭据"安全门禁（credential-store spec：API Key 不硬编码）。

@@ -8,6 +8,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
+import org.springframework.stereotype.Component;
+
 import com.ananoesis.shell.contract.model.ToolResultStatus;
 import com.ananoesis.shell.security.CredentialProtectionException;
 import com.ananoesis.shell.service.HostNotFoundException;
@@ -19,11 +25,6 @@ import com.ananoesis.shell.ssh.PtyCommandScheduler;
 import com.ananoesis.shell.ssh.SshConnectException;
 import com.ananoesis.shell.ssh.SshExecService;
 import com.ananoesis.shell.support.TurnCancelledException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.lang.Nullable;
-import org.springframework.stereotype.Component;
 
 /**
  * 执行<b>已获批准</b>的命令（tasks 8.2 / 8.4 + 5.5 PTY 路由改造）。

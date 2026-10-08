@@ -6,17 +6,17 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.entity.AiRun;
-import com.ananoesis.shell.mapper.AiRunMapper;
-import com.ananoesis.shell.service.AgentRunService;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.entity.AiRun;
+import com.ananoesis.shell.mapper.AiRunMapper;
+import com.ananoesis.shell.service.AgentRunService;
 
 /**
  * 运行账本服务（tasks 6.1）——验证 run 的领取、状态流转与 session 串行裁决。

@@ -15,21 +15,21 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import com.ananoesis.shell.config.WebSocketConfiguration;
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.contract.model.EndReason;
-import com.ananoesis.shell.contract.model.ToolResultStatus;
-import com.fasterxml.jackson.databind.BeanDescription;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.lang.Nullable;
 import org.yaml.snakeyaml.Yaml;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
+import com.ananoesis.shell.config.WebSocketConfiguration;
+import com.ananoesis.shell.contract.model.EndReason;
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.contract.model.ToolResultStatus;
+import com.fasterxml.jackson.databind.BeanDescription;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
 
 /**
  * 把 {@code contract/asyncapi.yaml} 当作<b>数据</b>读进来，钉住 ws 层与冻结契约的一致。

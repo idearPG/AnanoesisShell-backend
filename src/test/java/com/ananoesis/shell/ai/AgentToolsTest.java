@@ -13,6 +13,18 @@ import java.util.function.Function;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.security.CredentialProtectionException;
 import com.ananoesis.shell.service.HostNotFoundException;
@@ -28,18 +40,6 @@ import com.ananoesis.shell.ssh.SshFailureKind;
 import com.ananoesis.shell.ssh.SshTarget;
 import com.ananoesis.shell.ssh.SshTargetResolver;
 import com.ananoesis.shell.support.FakeSshServer;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.ai.chat.model.ToolContext;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 只读工具集与工具分级（tasks 9.2 / 9.3）。

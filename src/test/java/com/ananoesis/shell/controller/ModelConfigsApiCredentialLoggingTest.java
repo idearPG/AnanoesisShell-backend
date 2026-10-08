@@ -3,15 +3,7 @@ package com.ananoesis.shell.controller;
 import java.net.URI;
 import java.util.UUID;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.classic.spi.IThrowableProxy;
-import ch.qos.logback.classic.spi.StackTraceElementProxy;
-import ch.qos.logback.core.read.ListAppender;
-import com.ananoesis.shell.AbstractSqliteIntegrationTest;
-import com.ananoesis.shell.contract.model.ModelConfig;
-import com.ananoesis.shell.contract.model.ThinkingMode;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,7 +18,16 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import com.ananoesis.shell.AbstractSqliteIntegrationTest;
+import com.ananoesis.shell.contract.model.ModelConfig;
+import com.ananoesis.shell.contract.model.ThinkingMode;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.IThrowableProxy;
+import ch.qos.logback.classic.spi.StackTraceElementProxy;
+import ch.qos.logback.core.read.ListAppender;
 
 /**
  * credential-store spec「MUST NOT 将明文凭据写入日志」在 {@code /api/model-configs} 全链路上的回归。

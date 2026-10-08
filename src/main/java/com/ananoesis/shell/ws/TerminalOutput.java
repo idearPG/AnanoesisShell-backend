@@ -2,13 +2,14 @@ package com.ananoesis.shell.ws;
 
 import java.util.UUID;
 
-import com.ananoesis.shell.contract.model.ErrorCode;
+import org.springframework.lang.Nullable;
+
 import com.ananoesis.shell.contract.model.EndReason;
+import com.ananoesis.shell.contract.model.ErrorCode;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
-import org.springframework.lang.Nullable;
 
 /**
  * {@code terminal_output} 消息载荷（asyncapi.yaml {@code components/schemas/TerminalOutput}）。

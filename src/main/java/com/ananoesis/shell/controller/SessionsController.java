@@ -3,12 +3,13 @@ package com.ananoesis.shell.controller;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ananoesis.shell.contract.api.SessionsApi;
 import com.ananoesis.shell.contract.model.Session;
 import com.ananoesis.shell.contract.model.SessionStatus;
 import com.ananoesis.shell.service.SessionService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/sessions} 的 REST 实现（ssh-connection spec「连接会话生命周期」）。

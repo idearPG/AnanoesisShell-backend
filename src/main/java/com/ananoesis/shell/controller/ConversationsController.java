@@ -3,15 +3,16 @@ package com.ananoesis.shell.controller;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ananoesis.shell.contract.api.ConversationsApi;
 import com.ananoesis.shell.contract.model.BatchDeleteRequest;
 import com.ananoesis.shell.contract.model.Conversation;
 import com.ananoesis.shell.contract.model.ConversationCreate;
 import com.ananoesis.shell.contract.model.MessageListResponse;
 import com.ananoesis.shell.service.ConversationService;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/conversations} 的 HTTP 适配层（tasks 9.4 / 9.5 / 7.1-7.5）。

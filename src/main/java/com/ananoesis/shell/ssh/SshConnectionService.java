@@ -18,10 +18,15 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
 import com.ananoesis.shell.config.SshProperties;
 import com.ananoesis.shell.security.SecretText;
 import com.hierynomus.sshj.common.KeyDecryptionFailedException;
 import com.hierynomus.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile;
+
 import net.schmizz.sshj.SSHClient;
 import net.schmizz.sshj.transport.verification.HostKeyVerifier;
 import net.schmizz.sshj.userauth.UserAuthException;
@@ -32,9 +37,6 @@ import net.schmizz.sshj.userauth.keyprovider.PKCS8KeyFile;
 import net.schmizz.sshj.userauth.keyprovider.PuTTYKeyFile;
 import net.schmizz.sshj.userauth.password.PasswordFinder;
 import net.schmizz.sshj.userauth.password.Resource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
 
 /**
  * SSH 连接与认证（tasks 6.1 / 6.2）。

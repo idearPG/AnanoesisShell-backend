@@ -10,13 +10,15 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import com.ananoesis.shell.config.SshProperties;
-import jakarta.annotation.PreDestroy;
-import net.schmizz.sshj.SSHClient;
-import net.schmizz.sshj.connection.channel.direct.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+
+import com.ananoesis.shell.config.SshProperties;
+
+import jakarta.annotation.PreDestroy;
+import net.schmizz.sshj.SSHClient;
+import net.schmizz.sshj.connection.channel.direct.Session;
 
 /**
  * 交互式终端会话的编排（tasks 6.3 / 6.6 + Wave 2 多连接改造）。

@@ -4,10 +4,11 @@ import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.lang.Nullable;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
-import org.springframework.lang.Nullable;
 
 /**
  * {@code approval_request} 消息载荷（asyncapi.yaml {@code components/schemas/ApprovalRequest}）。

@@ -2,6 +2,22 @@ package com.ananoesis.shell.ssh;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import static org.mockito.ArgumentMatchers.any;
+import org.mockito.Mock;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import org.mockito.junit.jupiter.MockitoExtension;
+
 import com.ananoesis.shell.config.TransferProperties;
 import com.ananoesis.shell.contract.model.CreateTransferRequest;
 import com.ananoesis.shell.contract.model.Transfer;
@@ -12,21 +28,7 @@ import com.ananoesis.shell.mapper.FileTransferMapper;
 import com.ananoesis.shell.security.DownloadTicketService;
 import com.ananoesis.shell.service.TransferQuotaExceededException;
 import com.ananoesis.shell.service.TransferService;
-import com.ananoesis.shell.ssh.SshTerminalService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
 
 /**
  * 传输调度与配额测试（design.md D9）。

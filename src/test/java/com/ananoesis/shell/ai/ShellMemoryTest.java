@@ -4,6 +4,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.contract.model.Conversation;
 import com.ananoesis.shell.entity.AiMessage;
@@ -12,12 +18,6 @@ import com.ananoesis.shell.entity.SshSession;
 import com.ananoesis.shell.mapper.HostMapper;
 import com.ananoesis.shell.mapper.SshSessionMapper;
 import com.ananoesis.shell.service.ConversationService;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * tasks 7.1 / 7.2 的验收：人工记忆与对话绑定 session。

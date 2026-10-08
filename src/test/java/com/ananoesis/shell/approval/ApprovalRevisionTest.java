@@ -16,21 +16,20 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.contract.model.ConversationCreate;
 import com.ananoesis.shell.entity.Host;
 import com.ananoesis.shell.mapper.HostMapper;
 import com.ananoesis.shell.service.ConversationService;
 import com.ananoesis.shell.service.SettingsService;
-import com.ananoesis.shell.support.TestWait;
 import com.ananoesis.shell.ws.ApprovalResponseFrame.Decision;
 import com.ananoesis.shell.ws.ToolName;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 审批版本化与并发栅栏（tasks 6.4 / 6.5）。

@@ -6,6 +6,12 @@ import java.util.UUID;
 
 import javax.sql.DataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
 import com.ananoesis.shell.AbstractSqliteIntegrationTest;
 import com.ananoesis.shell.entity.AiRun;
 import com.ananoesis.shell.entity.CommandExecution;
@@ -13,12 +19,6 @@ import com.ananoesis.shell.mapper.AiRunMapper;
 import com.ananoesis.shell.mapper.CommandExecutionMapper;
 import com.ananoesis.shell.service.AgentRunService;
 import com.ananoesis.shell.service.CommandExecutionService;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 智能体执行账本（tasks 6.2）——验证工具提议先落库、再审批/执行、再持久化结果的流程。

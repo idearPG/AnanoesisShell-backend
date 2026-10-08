@@ -5,28 +5,29 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
-import com.ananoesis.shell.service.ConflictException;
-import com.ananoesis.shell.service.NotFoundException;
-import com.ananoesis.shell.service.TransferConflictException;
-import com.ananoesis.shell.service.TransferService;
-import com.ananoesis.shell.service.TransferService.DownloadResult;
-import jakarta.servlet.http.HttpServletRequest;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
-
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import com.ananoesis.shell.service.ConflictException;
+import com.ananoesis.shell.service.NotFoundException;
+import com.ananoesis.shell.service.TransferConflictException;
+import com.ananoesis.shell.service.TransferService;
+import com.ananoesis.shell.service.TransferService.DownloadResult;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * 二进制内容端点的 HTTP 适配层测试（JaCoCo 0.75 门禁补覆盖）。

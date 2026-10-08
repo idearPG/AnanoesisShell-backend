@@ -2,10 +2,11 @@ package com.ananoesis.shell.ai;
 
 import java.util.Objects;
 
+import org.springframework.stereotype.Component;
+
 import com.ananoesis.shell.service.CredentialStoreService;
 import com.ananoesis.shell.service.ModelConfigService;
 import com.ananoesis.shell.service.ModelConfigService.ActiveModelConfig;
-import org.springframework.stereotype.Component;
 
 /**
  * {@link ModelEndpointResolver} 的生产实现：从"当前生效的模型配置 + 密文 api key"解析端点。

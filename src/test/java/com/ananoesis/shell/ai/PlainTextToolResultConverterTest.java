@@ -3,11 +3,10 @@ package com.ananoesis.shell.ai;
 import java.util.List;
 import java.util.Map;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.execution.DefaultToolCallResultConverter;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@link PlainTextToolResultConverter} 的行为钉（tasks 9.2 / 9.5）。

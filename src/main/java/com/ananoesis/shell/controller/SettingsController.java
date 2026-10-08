@@ -1,10 +1,11 @@
 package com.ananoesis.shell.controller;
 
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.ananoesis.shell.contract.api.SettingsApi;
 import com.ananoesis.shell.contract.model.Settings;
 import com.ananoesis.shell.service.SettingsService;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.RestController;
 
 /**
  * {@code /api/settings} 的 HTTP 适配层（tasks 7.1）。

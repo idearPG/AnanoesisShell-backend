@@ -3,16 +3,14 @@ package com.ananoesis.shell.ai;
 import java.util.List;
 import java.util.UUID;
 
-import com.ananoesis.shell.entity.AiMessage;
-import com.ananoesis.shell.service.ConversationService;
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
+import com.ananoesis.shell.entity.AiMessage;
+import com.ananoesis.shell.service.ConversationService;
 
 /**
  * 智能体上下文构建器测试（design D7 步骤 1-4，tasks 8.4/8.5/8.6）。

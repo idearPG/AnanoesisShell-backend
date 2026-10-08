@@ -4,17 +4,6 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.ananoesis.shell.contract.model.Error;
-import com.ananoesis.shell.contract.model.ErrorCode;
-import com.ananoesis.shell.contract.model.ErrorDetailsInner;
-import com.ananoesis.shell.security.CredentialProtectionException;
-import com.ananoesis.shell.service.ConflictException;
-import com.ananoesis.shell.service.InvalidRequestException;
-import com.ananoesis.shell.service.NotFoundException;
-import com.ananoesis.shell.service.TransferConflictException;
-import com.ananoesis.shell.service.TransferQuotaExceededException;
-import jakarta.validation.ConstraintViolation;
-import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSourceResolvable;
@@ -30,6 +19,19 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+
+import com.ananoesis.shell.contract.model.Error;
+import com.ananoesis.shell.contract.model.ErrorCode;
+import com.ananoesis.shell.contract.model.ErrorDetailsInner;
+import com.ananoesis.shell.security.CredentialProtectionException;
+import com.ananoesis.shell.service.ConflictException;
+import com.ananoesis.shell.service.InvalidRequestException;
+import com.ananoesis.shell.service.NotFoundException;
+import com.ananoesis.shell.service.TransferConflictException;
+import com.ananoesis.shell.service.TransferQuotaExceededException;
+
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 
 /**
  * 全局异常 → 契约 {@code Error} 响应的唯一翻译层（tasks 2.4 / 5.1 / 7.1 / 8.5）。

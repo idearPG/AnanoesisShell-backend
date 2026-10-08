@@ -4,8 +4,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-import com.ananoesis.shell.ws.ToolName;
 import org.springframework.lang.Nullable;
+
+import com.ananoesis.shell.ws.ToolName;
 
 /**
  * 一次<b>待审批</b>的工具调用提案（command-approval spec「执行前人工审批」的输入）。

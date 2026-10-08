@@ -4,13 +4,14 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 
-import com.ananoesis.shell.entity.CommandExecution;
-import com.ananoesis.shell.mapper.CommandExecutionMapper;
-import com.ananoesis.shell.support.EntityIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
+
+import com.ananoesis.shell.entity.CommandExecution;
+import com.ananoesis.shell.mapper.CommandExecutionMapper;
+import com.ananoesis.shell.support.EntityIds;
 
 /**
  * 命令执行账本服务（tasks 6.3）。

@@ -2,21 +2,21 @@ package com.ananoesis.shell.ws;
 
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import static org.mockito.ArgumentMatchers.any;
+import org.mockito.Mockito;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import org.springframework.web.socket.TextMessage;
+
 import com.ananoesis.shell.ai.AiAgentService;
 import com.ananoesis.shell.ai.TurnRequest;
 import com.ananoesis.shell.support.FakeWebSocketSession;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.springframework.web.socket.TextMessage;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * {@code /ai} 通道上行协议测试（用户反馈「Agent 对话要能像 Shell 一样 Ctrl+C 打断」）。
