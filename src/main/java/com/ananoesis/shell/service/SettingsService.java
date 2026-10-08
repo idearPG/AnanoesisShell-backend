@@ -67,7 +67,7 @@ public class SettingsService {
 
     public static final boolean DEFAULT_THINKING_MODE_ENABLED = false;
     public static final int DEFAULT_APPROVAL_TIMEOUT_SECONDS = 120;
-    public static final int DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = 60;
+    public static final int DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = 1800;
     public static final int DEFAULT_RUN_COMMAND_MAX_OUTPUT_BYTES = 65536;
     public static final int DEFAULT_READ_FILE_MAX_LINES = 500;
 
