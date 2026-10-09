@@ -132,9 +132,11 @@ public final class ShellIntegrationInstaller {
                 // 干净文本供采集（agent 命令输出）——采集 MUST NOT 被闸门吞，
                 // 否则 Agent 命令输出丢失；展示转发才受闸门控制
                 String clean = decoder.decode(data);
-                scheduler.collectOutput(clean);
-                if (gateOpen[0] && !clean.isEmpty()) {
-                    delegate.onStdout(clean);
+                // WHY 以采集返回值为转发依据：嵌套探针回显块由 collectOutput 判定
+                // 并抑制（返回空串），转发方必须尊重返回值，探针噪声才不会漏到用户终端
+                String forward = scheduler.collectOutput(clean);
+                if (gateOpen[0] && !forward.isEmpty()) {
+                    delegate.onStdout(forward);
                 }
             }
 
@@ -204,9 +206,11 @@ public final class ShellIntegrationInstaller {
             @Override
             public void onStdout(String data) {
                 String clean = decoder.decode(data);
-                scheduler.collectOutput(clean);
-                if (gateOpen[0] && !clean.isEmpty()) {
-                    delegate.onStdout(clean);
+                // WHY 以采集返回值为转发依据：嵌套探针回显块由 collectOutput 判定
+                // 并抑制（返回空串），转发方必须尊重返回值，探针噪声才不会漏到用户终端
+                String forward = scheduler.collectOutput(clean);
+                if (gateOpen[0] && !forward.isEmpty()) {
+                    delegate.onStdout(forward);
                 }
             }
             @Override

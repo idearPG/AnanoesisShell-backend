@@ -704,12 +704,52 @@ class PtyCommandSchedulerTest {
                     s -> s.contains(PtyCommandScheduler.NESTED_PROBE_MARKER));
             assertThat(callbackInvoked.get()).as("探测标记回显前应未触发回调").isFalse();
 
-            // 模拟探测标记回显（嵌套 bash 中 echo 命令的输出）
-            // 此时 nestedState=PROBE_SENT 且下一个探测定时还在 300ms 之后
+            // 模拟探测标记回显：健康与嵌套 shell 都会回显——回显本身不是嵌套证据
             scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
 
-            // 回调已触发（集成重安装应被通知）
-            assertThat(callbackInvoked.get()).as("探测标记确认后回调必须触发").isTrue();
+            // 新语义：回显只记录，不立即确认（旧逻辑「回显即确认」是内网死循环根因：
+            // 健康 shell 空闲同样回显探针 → 误判嵌套 → 重安装 → 新调度器再探测 → 循环）
+            assertThat(callbackInvoked.get()).as("仅有回显不得立即确认嵌套").isFalse();
+
+            // 探测窗口到期仍无任何集成帧 → 回显+无帧 = 嵌套确认 → 回调
+            // （WHY 900ms：回显刷新帧活动时刻会顺延一轮裁决，需跨两个窗口）
+            Thread.sleep(900);
+            assertThat(callbackInvoked.get()).as("回显+窗口内无帧必须触发重安装回调").isTrue();
+        }
+
+        @Test
+        @DisplayName("健康 Shell：探针回显后 PROMPT 帧到达，撤销探测且不触发重安装")
+        void healthyShellPromptFrameCancelsProbe() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 探测已发送
+            assertThat(terminal.sentData).anyMatch(
+                    s -> s.contains(PtyCommandScheduler.NESTED_PROBE_MARKER));
+
+            // 健康 shell 的完整响应：探针回显 + PROMPT 帧（钩子存活证据）
+            scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "0", ""));
+
+            // 帧到达即重置探测并顺延：健康 shell 永远不该被误判（内网死循环回归）
+            Thread.sleep(1100);
+            assertThat(callbackInvoked.get())
+                    .as("回显+PROMPT 帧=钩子存活，不得触发重安装").isFalse();
+        }
+
+        @Test
+        @DisplayName("探测窗口内探针回显被抑制返回空串，普通输出原样透传")
+        void probeEchoSuppressedDuringProbeWindow() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 进入 PROBE_SENT
+            // 探针回显块必须被抑制（返回空串），否则会漏到用户终端（内网 4 行探针）
+            assertThat(scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345")).isEmpty();
+            // 非探针内容不受影响，原样透传
+            assertThat(scheduler.collectOutput("普通输出\n")).isEqualTo("普通输出\n");
         }
 
         @Test
@@ -720,9 +760,11 @@ class PtyCommandSchedulerTest {
             scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
             scheduler.onIntegrationSuccess();
 
-            // 完成探测链路：超时→探测→标记确认→回调（重安装）
+            // 完成探测链路：超时→探测→回显记录→窗口到期裁决→回调（重安装）
             Thread.sleep(700);
             scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
+            // 新语义：裁决在探测窗口到期（回显刷新帧活动时刻，跨两个窗口）
+            Thread.sleep(900);
             assertThat(callbackInvoked.get()).isTrue();
 
             // 模拟重安装后仍无帧（嵌套 bash 中新集成代码未生效），

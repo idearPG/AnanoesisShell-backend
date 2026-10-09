@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import com.ananoesis.shell.config.SshProperties;
 import com.ananoesis.shell.entity.CommandExecution;
 import com.ananoesis.shell.service.CommandExecutionService;
-import com.ananoesis.shell.service.Conversation;
+import com.ananoesis.shell.contract.model.Conversation;
 import com.ananoesis.shell.service.ConversationService;
 import com.ananoesis.shell.ssh.PtyCommandScheduler.ManualCommandInfo;
 
@@ -307,6 +307,12 @@ public class SshTerminalService {
             relay.switchTo(outcome.listener());
             if (outcome.scheduler() != null) {
                 runtime.setScheduler(outcome.scheduler());
+                // WHY 重安装后必须重新注入回调：新调度器是全新实例，
+                // 不继承旧调度器的 listener 注册（嵌套 Shell 场景）
+                outcome.scheduler().setNestedShellCallback(() ->
+                        reinstallShellIntegration(terminal, listener, relay, runtime));
+                outcome.scheduler().setManualCommandListener(
+                        info -> onManualCommandComplete(runtime.sessionId(), info));
                 LOG.info("嵌套 Shell 集成重安装完成: session={} nonce={}",
                         runtime.sessionId(), outcome.nonce());
             }

@@ -174,8 +174,11 @@ public class PtyCommandScheduler {
      */
     private volatile long lastFrameNanos = System.nanoTime();
 
-    /** 嵌套探测状态机：IDLE→PROBE_SENT→PROBE_CONFIRMED→REINSTALL_TRIGGERED / FALLBACK。 */
-    private enum NestedState { IDLE, PROBE_SENT, PROBE_CONFIRMED, FALLBACK }
+    /** 嵌套探测状态机：IDLE→PROBE_SENT→（回显+窗口内无帧：回调+FALLBACK）／（无回显或任意帧到达：回 IDLE）。 */
+    private enum NestedState { IDLE, PROBE_SENT, FALLBACK }
+    
+        /** 探针回显是否已到达（shell 存活证据；与 PROMPT 帧缺失组合才构成嵌套确认）。 */
+        private boolean probeEchoed;
     private NestedState nestedState = NestedState.IDLE;
 
     /** 集成重安装尝试次数（最多 1 次）。 */
@@ -338,11 +341,10 @@ public class PtyCommandScheduler {
      * <p>WHY 暴露给上层：Agent 系统提示需要告知模型用户可能进入了 Docker 容器等
      * 嵌套环境，否则模型不知道 Shell 环境已变化，给出基于宿主机的错误建议。</p>
      *
-     * @return true 表示探测确认处于嵌套 Shell 或已降级为 exec 通道模式
+     * @return true 表示探测已确认嵌套 Shell（确认即降级）或已进入 exec 通道模式
      */
     public boolean isNestedShell() {
-        return nestedState == NestedState.PROBE_CONFIRMED
-                || nestedState == NestedState.FALLBACK;
+        return nestedState == NestedState.FALLBACK;
     }
 
     /**
@@ -565,7 +567,15 @@ public class PtyCommandScheduler {
             if (nestedState != NestedState.IDLE && nestedState != NestedState.FALLBACK) {
                 cancelNestedProbe();
                 nestedState = NestedState.IDLE;
+                // WHY 同步清回显标志：帧到达即钩子存活，本窗口裁决已终结，
+                // 残留标志混入下一窗口会造成假确认
+                probeEchoed = false;
             }
+            // WHY 帧后重排探测（兑现上方「刷新嵌套检测计时器」的语义）：帧只是暂时
+            // 打断空闲判定，命令结束后仍需持续监测嵌套 Shell——docker exec 进容器
+            // 后钩子失效是运行时常态；旧实现只在集成成功时装一次探测、帧一到即
+            // 永久休眠，嵌套场景从此失察（AI 命令在容器内挂到超时，只能文本回复）
+            scheduleNestedProbe();
             // 任何控制帧都是命令存活的证据（如长命令末尾的 CWD/CMD_END 帧），
             // 刷新空闲计时起点
             if (currentCommand != null) {
@@ -603,25 +613,29 @@ public class PtyCommandScheduler {
      * 阻塞，命令永远不结束。继续排空确保命令能正常完成。</p>
      *
      * @param data 一段终端输出（已经 ShellFrameDecoder 剥离控制帧后的干净文本）
+     * @return 应继续转发给用户终端的文本；探针回显块返回空串（抑制透传）
      */
-    public void collectOutput(String data) {
+    public String collectOutput(String data) {
         if (data == null || data.isEmpty()) {
-            return;
+            return data == null ? "" : data;
         }
         synchronized (this) {
             // WHY 始终刷新帧活动时刻：嵌套 Shell 检测需要在无在飞命令时也能判定
             // "Shell 应该持续产出帧但实际没有"——任何 PTY 输出都说明 Shell 活跃
             lastFrameNanos = System.nanoTime();
 
-            // 嵌套探测标记检测：无论调度状态，探测回显到达即确认嵌套 Shell
+            // WHY 探针回显只记录不确认：正常 bash 也会回显 echo 命令及其输出，
+            // 「回显到达」不构成嵌套证据——嵌套与否取决于探针后有无 PROMPT 帧
+            // （钩子活着必产 PROMPT）。旧逻辑回显即确认，健康 shell 空闲即被
+            // 误判嵌套 → 重安装 → 新调度器再探测 → 死循环（内网实测多行探针
+            // 泄漏 + 连接被循环重装打断）。确认改由探测超时统一裁决。
             if (nestedState == NestedState.PROBE_SENT && data.contains(NESTED_PROBE_MARKER)) {
-                LOG.info("嵌套 Shell 探测标记已确认，触发集成重安装");
-                nestedState = NestedState.PROBE_CONFIRMED;
-                Runnable cb = nestedShellCallback;
-                if (cb != null) {
-                    cb.run();
-                }
-                return;
+                probeEchoed = true;
+                // WHY 整块抑制探针回显：探针是普通 echo，其命令回显行与输出行都不在
+                // OSC 帧协议内，解码器剥不掉；透传会直接漏到用户终端（内网实测 4 行
+                // 探针泄漏）。探测窗口内终端无其他活动，含标记的数据块整体吞掉，
+                // 噪声抑制优先于块内逐行保真；返回空串即通知转发方丢弃本块
+                return "";
             }
 
             if (currentCommand != null && state == State.AGENT_OWNED) {
@@ -633,6 +647,9 @@ public class PtyCommandScheduler {
                 // 供回调提取命令文本与输出摘要，写入对话历史让 Agent 可见
                 appendManualOutput(data);
             }
+
+            // 未命中探针抑制：原样返回，转发方以返回值为透传依据
+            return data;
         }
     }
 
@@ -960,8 +977,11 @@ public class PtyCommandScheduler {
     private void onNestedProbeTimeout() {
         synchronized (this) {
             if (state != State.MANUAL_IDLE || currentCommand != null) {
-                // 有命令在飞或状态不是 idle：探测无意义，重置
+                // 有命令在飞或状态不是 idle：本轮探测无意义——重置并顺延到下个周期
+                // （WHY 顺延：命令在飞期间定时器若中断则无人重启，命令结束后
+                // 嵌套检测将永久失察）
                 nestedState = NestedState.IDLE;
+                scheduleNestedProbe();
                 return;
             }
 
@@ -973,30 +993,38 @@ public class PtyCommandScheduler {
             }
 
             if (nestedState == NestedState.IDLE) {
-                // 首次超时：发送探测命令
-                LOG.info("帧活动超时（{}ms），发送嵌套 Shell 探测命令", idleMs);
+                // 发送探测命令（WHY debug 级：探测修复后会周期性复发于空闲会话，
+                // info 会刷日志；确认嵌套的关键事件另有 info 日志）
+                LOG.debug("帧活动超时（{}ms），发送嵌套 Shell 探测命令", idleMs);
                 nestedState = NestedState.PROBE_SENT;
+                // WHY 每轮探测前重置回显标志：上一窗口的残留标志不得参与本轮裁决
+                probeEchoed = false;
                 terminalSession.send("echo " + NESTED_PROBE_MARKER + "$$\n");
                 // 再等一个超时周期确认探测结果
                 scheduleNestedProbe();
             } else if (nestedState == NestedState.PROBE_SENT) {
-                // 探测已发送但未收到回显（也无帧）：可能是用户离开座位，
-                // 不一定是嵌套 Shell——重置为 IDLE 避免误判
-                LOG.debug("嵌套探测已发送但无回显，重置为 IDLE（可能是用户离开）");
-                nestedState = NestedState.IDLE;
-                scheduleNestedProbe();
-            } else if (nestedState == NestedState.PROBE_CONFIRMED) {
-                // 重装已触发但未生效（再等一个周期后仍无帧）：降级
-                if (nestedReinstallAttempts < 1) {
-                    nestedReinstallAttempts++;
+                if (probeEchoed) {
+                    // WHY 回显+窗口内无帧才构成嵌套确认：窗口内回显到达只证明 shell
+                    // 存活（正常 bash 也回显 echo），整个窗口没有产生任何集成帧才证明
+                    // 钩子失效（钩子活着必产 PROMPT）。旧逻辑「回显即确认」把健康 shell
+                    // 的空闲也判成嵌套 → 重安装 → 新调度器再探测 → 死循环（内网实测：
+                    // 探针泄漏 + 连接被反复重装打断 + 会话重建丢对话记忆）。
+                    // WHY 确认后直接降级且不再重排：重安装回调会以新调度器替换本实例，
+                    // 本调度器若继续探测只会重复触发重安装；若回调异常未替换成功，
+                    // FALLBACK 让后续命令走 exec 通道兜底，不再空耗探测周期
+                    LOG.info("嵌套 Shell 确认：探针有回显但窗口内无集成帧，触发集成重安装");
                     Runnable cb = nestedShellCallback;
+                    nestedState = NestedState.FALLBACK;
+                    probeEchoed = false;
                     if (cb != null) {
                         cb.run();
                     }
-                    scheduleNestedProbe();
                 } else {
-                    LOG.warn("嵌套 Shell 集成重安装失败，降级为 exec 通道模式");
-                    nestedState = NestedState.FALLBACK;
+                    // 探测已发送但未收到回显（也无帧）：可能是用户离开座位，
+                    // 不一定是嵌套 Shell——重置为 IDLE 避免误判
+                    LOG.debug("嵌套探测已发送但无回显，重置为 IDLE（可能是用户离开）");
+                    nestedState = NestedState.IDLE;
+                    scheduleNestedProbe();
                 }
             }
         }
