@@ -394,6 +394,31 @@ public class AgentTools {
     }
 
     /**
+     * 查询指定会话是否处于嵌套 Shell 环境（供系统提示词注入）。
+     *
+     * <p>WHY 挂在本类：与 {@link #sessionCwdOf} 同理，复用现成网关查找链。</p>
+     *
+     * @param sessionId 终端会话 id，可为 null
+     * @return true 表示处于嵌套 Shell 或已降级；无网关/未命中时返回 false
+     */
+    public boolean isNestedShell(@Nullable String sessionId) {
+        if (ptyGateway == null || sessionId == null || sessionId.isBlank()) {
+            return false;
+        }
+        return ptyGateway.isNestedShell(sessionId);
+    }
+
+    /**
+     * 暴露 PTY 网关引用（供 {@link AiAgentService} 查询调度器降级状态）。
+     *
+     * @return 网关；未配置时返回 null
+     */
+    @Nullable
+    public PtyCommandGateway ptyGatewayRef() {
+        return ptyGateway;
+    }
+
+    /**
      * 通过 exec 路径执行。异常时设置 LAST_ERROR 并返回 null。
      */
     @Nullable

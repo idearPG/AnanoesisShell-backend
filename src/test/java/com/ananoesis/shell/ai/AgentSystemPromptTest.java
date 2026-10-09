@@ -1,6 +1,7 @@
 package com.ananoesis.shell.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -260,6 +261,95 @@ class AgentSystemPromptTest {
         assertThat(prompt).contains("wc -l");
         assertThat(prompt).contains("start_line").contains("end_line");
         assertThat(prompt).contains("grep -n");
+    }
+
+    // ======================================================================
+    // 最近 Shell 活动段落（sync-shell-memory-to-agent）
+    // ======================================================================
+
+    @Test
+    @DisplayName("有最近 Shell 活动时提示包含命令列表段落")
+    void promptIncludesRecentShellActivityWhenPresent() {
+        List<ShellActivity> activities = List.of(
+                new ShellActivity("docker ps", 0),
+                new ShellActivity("ls /tmp", 0));
+
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false, "/home/user",
+                activities, null);
+
+        assertThat(prompt)
+                .contains("## 最近 Shell 活动")
+                .contains("$ docker ps (exit=0)")
+                .contains("$ ls /tmp (exit=0)")
+                .contains("引用这些命令的结果");
+    }
+
+    @Test
+    @DisplayName("无最近 Shell 活动时提示不包含该段落")
+    void promptOmitsRecentShellActivityWhenEmpty() {
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false, "/home/user",
+                List.of(), null);
+        assertThat(prompt).doesNotContain("## 最近 Shell 活动");
+    }
+
+    @Test
+    @DisplayName("最近 Shell 活动为 null 时提示不包含该段落")
+    void promptOmitsRecentShellActivityWhenNull() {
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false, "/home/user",
+                null, null);
+        assertThat(prompt).doesNotContain("## 最近 Shell 活动");
+    }
+
+    // ======================================================================
+    // 嵌套 Shell 环境段落（sync-shell-memory-to-agent）
+    // ======================================================================
+
+    @Test
+    @DisplayName("嵌套环境 + 集成可用时提示命令在嵌套环境中执行")
+    void promptIncludesNestedEnvWithIntegrationAvailable() {
+        NestedEnvInfo nestedEnv = new NestedEnvInfo(true, true);
+
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false, "/home/user",
+                null, nestedEnv);
+
+        assertThat(prompt)
+                .contains("## 嵌套 Shell 环境")
+                .contains("嵌套 Shell 环境")
+                .contains("Shell 集成已重新安装")
+                .contains("hostname");
+    }
+
+    @Test
+    @DisplayName("嵌套环境 + 集成降级时提示 exec 通道限制")
+    void promptIncludesNestedEnvWithFallback() {
+        NestedEnvInfo nestedEnv = new NestedEnvInfo(true, false);
+
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false, "/home/user",
+                null, nestedEnv);
+
+        assertThat(prompt)
+                .contains("## 嵌套 Shell 环境")
+                .contains("exec 通道")
+                .contains("nsenter");
+    }
+
+    @Test
+    @DisplayName("无嵌套环境时提示不包含该段落")
+    void promptOmitsNestedEnvWhenNotNested() {
+        NestedEnvInfo nestedEnv = new NestedEnvInfo(false, true);
+
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false, "/home/user",
+                null, nestedEnv);
+
+        assertThat(prompt).doesNotContain("## 嵌套 Shell 环境");
+    }
+
+    @Test
+    @DisplayName("嵌套环境为 null 时提示不包含该段落")
+    void promptOmitsNestedEnvWhenNull() {
+        String prompt = AgentSystemPrompt.build(HOST_LABEL, true, false, "/home/user",
+                null, null);
+        assertThat(prompt).doesNotContain("## 嵌套 Shell 环境");
     }
 
 }

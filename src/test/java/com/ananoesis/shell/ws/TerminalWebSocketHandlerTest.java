@@ -9,6 +9,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,6 +20,8 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 
 import com.ananoesis.shell.config.SshProperties;
+import com.ananoesis.shell.service.CommandExecutionService;
+import com.ananoesis.shell.service.ConversationService;
 import com.ananoesis.shell.service.HostNotFoundException;
 import com.ananoesis.shell.ssh.SessionKind;
 import com.ananoesis.shell.ssh.SshAuthMethod;
@@ -390,7 +393,8 @@ class TerminalWebSocketHandlerTest {
         registry = new TerminalSessionRegistry();
         recorder = new InMemorySessionRecorder();
         SshTerminalService terminalService = new SshTerminalService(
-                new SshConnectionService(properties), properties, registry, resolver, recorder);
+                new SshConnectionService(properties), properties, registry, resolver, recorder,
+                mock(CommandExecutionService.class), mock(ConversationService.class));
         handler = new TerminalWebSocketHandler(terminalService, mapper);
         ws = new FakeWebSocketSession();
         cursor = 0;

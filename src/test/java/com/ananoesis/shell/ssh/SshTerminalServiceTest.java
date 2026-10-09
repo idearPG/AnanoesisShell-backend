@@ -6,12 +6,16 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import com.ananoesis.shell.service.CommandExecutionService;
+import com.ananoesis.shell.service.ConversationService;
 
 import com.ananoesis.shell.support.FakeSshServer;
 import com.ananoesis.shell.support.SshTestDoubles.FixedTargetResolver;
@@ -66,7 +70,8 @@ class SshTerminalServiceTest {
         resolver = new FixedTargetResolver(passwordTarget());
         recorder = new InMemorySessionRecorder();
         terminalService = new SshTerminalService(
-                new SshConnectionService(properties), properties, registry, resolver, recorder);
+                new SshConnectionService(properties), properties, registry, resolver, recorder,
+                mock(CommandExecutionService.class), mock(ConversationService.class));
         listener = new RecordingTerminalListener();
     }
 
@@ -350,7 +355,8 @@ class SshTerminalServiceTest {
         var properties = SshPropertiesFixture.fast();
         properties.setShellType("generic");
         terminalService = new SshTerminalService(
-                new SshConnectionService(properties), properties, registry, resolver, recorder);
+                new SshConnectionService(properties), properties, registry, resolver, recorder,
+                mock(CommandExecutionService.class), mock(ConversationService.class));
         fake.setLoginBanner("[guest@host ~]$ ");
         try {
             SessionRuntime runtime = terminalService.open(UUID.randomUUID(), listener);

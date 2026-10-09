@@ -7,6 +7,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.AfterEach;
@@ -666,6 +667,178 @@ class PtyCommandSchedulerTest {
 
             Thread.sleep(250);
             assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+        }
+    }
+
+    // ==================================================================
+    // 嵌套 Shell 检测
+    // ==================================================================
+
+    @Nested
+    @DisplayName("嵌套 Shell 检测")
+    class NestedShellDetection {
+
+        /** 创建含嵌套检测超时的调度器（短超时便于测试）。 */
+        private PtyCommandScheduler createSchedulerWithNestedDetect(long nestedDetectMs) {
+            return new PtyCommandScheduler(terminal, NONCE, executor, 200, 150,
+                    PtyCommandScheduler.DEFAULT_MAX_ABSOLUTE_MS,
+                    PtyCommandScheduler.DEFAULT_BUSY_EXPIRE_MS,
+                    nestedDetectMs);
+        }
+
+        @Test
+        @DisplayName("帧超时后发送探测命令，探测标记回显触发回调（嵌套 Shell 检测完整链路）")
+        void nestedShellDetectedAfterFrameTimeout() throws Exception {
+            // WHY 500ms 嵌套检测超时：需保证探测发送后有足够的窗口在下一个探测定时到期前
+            //      注入 collectOutput，100ms 在 Windows 线程调度下竞态必败
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            // 不发送任何帧，等待帧超时 → 探测命令写入 PTY
+            Thread.sleep(700);
+
+            // 探测命令 echo _ANANOESIS_NESTED_PROBE_$$ 已发送
+            assertThat(terminal.sentData).anyMatch(
+                    s -> s.contains(PtyCommandScheduler.NESTED_PROBE_MARKER));
+            assertThat(callbackInvoked.get()).as("探测标记回显前应未触发回调").isFalse();
+
+            // 模拟探测标记回显（嵌套 bash 中 echo 命令的输出）
+            // 此时 nestedState=PROBE_SENT 且下一个探测定时还在 300ms 之后
+            scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
+
+            // 回调已触发（集成重安装应被通知）
+            assertThat(callbackInvoked.get()).as("探测标记确认后回调必须触发").isTrue();
+        }
+
+        @Test
+        @DisplayName("重装失败后 submitCommand 拒绝并走 exec 回落（嵌套降级闭环）")
+        void nestedShellFallbackToExecAfterFailedReinstall() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            // 完成探测链路：超时→探测→标记确认→回调（重安装）
+            Thread.sleep(700);
+            scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
+            assertThat(callbackInvoked.get()).isTrue();
+
+            // 模拟重安装后仍无帧（嵌套 bash 中新集成代码未生效），
+            // 再经过多次探测周期（每周期 500ms）后降级为 FALLBACK
+            Thread.sleep(4000);
+            assertThat(scheduler.isNestedFallback()).as("多次无帧应降级为 exec 通道模式").isTrue();
+
+            // submitCommand 被拒绝（调用方走 exec 回落路径）
+            CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                    scheduler.submitCommand("echo hello");
+            assertThat(future).isCompletedExceptionally();
+        }
+    }
+
+    // ==================================================================
+    // 人工命令追踪与回调（sync-shell-memory-to-agent）
+    // ==================================================================
+
+    @Nested
+    @DisplayName("人工命令追踪")
+    class ManualCommandTracking {
+
+        @Test
+        @DisplayName("extractCommandFromEcho 从第一行回显提取命令文本")
+        void extractCommandFromEchoExtractsFirstLine() {
+            String output = "docker ps\r\nCONTAINER ID   IMAGE\nabc123   nginx";
+            assertThat(PtyCommandScheduler.extractCommandFromEcho(output))
+                    .isEqualTo("docker ps");
+        }
+
+        @Test
+        @DisplayName("extractCommandFromEcho 空输出返回空字符串")
+        void extractCommandFromEchoHandlesEmpty() {
+            assertThat(PtyCommandScheduler.extractCommandFromEcho("")).isEmpty();
+            assertThat(PtyCommandScheduler.extractCommandFromEcho(null)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("extractCommandFromEcho 无换行时返回整行去回车")
+        void extractCommandFromEchoHandlesNoNewline() {
+            assertThat(PtyCommandScheduler.extractCommandFromEcho("ls -la\r"))
+                    .isEqualTo("ls -la");
+        }
+
+        @Test
+        @DisplayName("isNestedShell 初始状态返回 false")
+        void isNestedShellInitiallyFalse() {
+            PtyCommandScheduler scheduler = createScheduler();
+            scheduler.onIntegrationSuccess();
+            assertThat(scheduler.isNestedShell()).isFalse();
+        }
+
+        @Test
+        @DisplayName("人工命令完成后触发回调且参数正确")
+        void manualCommandCallbackFiresOnComplete() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithBusyExpire(5000);
+            scheduler.onIntegrationSuccess();
+
+            // 收集回调信息
+            java.util.concurrent.atomic.AtomicReference<PtyCommandScheduler.ManualCommandInfo> captured =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            scheduler.setManualCommandListener(captured::set);
+
+            // 模拟人工命令流程：busy → CMD_START → 输出 → CMD_END → PROMPT
+            scheduler.onManualBusy();
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "0", "ls"));
+            scheduler.collectOutput("ls\r\nfile1.txt\nfile2.txt\n");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_END, NONCE, "0", "0"));
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "0", ""));
+
+            // 回调应被触发
+            assertThat(captured.get()).isNotNull();
+            assertThat(captured.get().command()).isEqualTo("ls");
+            assertThat(captured.get().exitCode()).isEqualTo(0);
+            assertThat(captured.get().output()).contains("file1.txt");
+        }
+
+        @Test
+        @DisplayName("无 CMD_START 证据时 PROMPT 不触发回调（用户只是敲了 Enter）")
+        void noCallbackWithoutCmdStart() {
+            PtyCommandScheduler scheduler = createSchedulerWithBusyExpire(5000);
+            scheduler.onIntegrationSuccess();
+
+            java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
+            scheduler.setManualCommandListener(info -> fired.set(true));
+
+            // 模拟用户只是敲了 Enter（无 CMD_START）
+            scheduler.onManualBusy();
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "0", ""));
+
+            assertThat(fired.get()).isFalse();
+        }
+
+        @Test
+        @DisplayName("Agent 命令派发后重置人工命令追踪状态")
+        void dispatchResetsManualTracking() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithBusyExpire(5000);
+            scheduler.onIntegrationSuccess();
+
+            java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean();
+            scheduler.setManualCommandListener(info -> fired.set(true));
+
+            // 先开始人工命令追踪
+            scheduler.onManualBusy();
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "0", "ls"));
+
+            // Agent 命令接管（派发重置人工追踪状态）
+            scheduler.onManualIdle();
+            scheduler.submitCommand("pwd");
+
+            // 人工命令的 PROMPT 不应触发回调（已被 Agent 重置）
+            // 完成 Agent 命令
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_END, NONCE, "1", "0"));
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "1", ""));
+
+            assertThat(fired.get()).isFalse();
         }
     }
 

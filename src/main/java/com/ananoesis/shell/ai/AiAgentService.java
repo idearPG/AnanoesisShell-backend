@@ -49,8 +49,11 @@ import com.ananoesis.shell.entity.AiConversation;
 import com.ananoesis.shell.entity.AiMessage;
 import com.ananoesis.shell.security.MissingModelApiKeyException;
 import com.ananoesis.shell.service.AgentRunService;
+import com.ananoesis.shell.service.CommandExecutionService;
 import com.ananoesis.shell.service.ConversationNotFoundException;
 import com.ananoesis.shell.service.ConversationService;
+import com.ananoesis.shell.ssh.PtyCommandGateway;
+import com.ananoesis.shell.ssh.PtyCommandScheduler;
 import com.ananoesis.shell.support.TurnCancelledException;
 import com.ananoesis.shell.ws.AiStreamFrame;
 import com.ananoesis.shell.ws.ToolCallEventFrame;
@@ -223,6 +226,15 @@ public class AiAgentService {
     private final String currentRunId;
 
     /**
+     * 命令执行账本服务（可空）。
+     *
+     * <p>WHY 可空：测试不需要查询人工命令历史。生产环境由 Spring 注入真实 bean，
+     * 用于在系统提示词构建时查询最近人工命令列表。</p>
+     */
+    @Nullable
+    private final CommandExecutionService commandExecutions;
+
+    /**
      * 在飞回合表：键 = 会话 id，值 = 执行该回合的工作线程。
      *
      * <p>WHY 用 {@code ConcurrentHashMap} 而非 {@code Set}：
@@ -256,9 +268,10 @@ public class AiAgentService {
     public AiAgentService(ChatModelProvider models, AgentTools agentTools, ApprovalGate gate,
                           ApprovedCommandRunner runner, ConversationService conversations,
                           ObjectProvider<AiStreamEmitter> emitters, ObjectMapper objectMapper,
-                          @Nullable AgentRunService runService) {
+                          @Nullable AgentRunService runService,
+                          @Nullable CommandExecutionService commandExecutions) {
         this(models, agentTools, gate, runner, conversations, emitters, objectMapper,
-                new ContextLimitClassifier(), runService, null,
+                new ContextLimitClassifier(), runService, null, commandExecutions,
                 Executors.newFixedThreadPool(WORKER_COUNT, new WorkerThreadFactory()));
     }
 
@@ -268,7 +281,7 @@ public class AiAgentService {
                    ObjectProvider<AiStreamEmitter> emitters, ObjectMapper objectMapper,
                    ExecutorService workers) {
         this(models, agentTools, gate, runner, conversations, emitters, objectMapper,
-                new ContextLimitClassifier(), null, null, workers);
+                new ContextLimitClassifier(), null, null, null, workers);
     }
 
     /** 测试用构造器（含 run 跟踪，供恢复测试使用）。 */
@@ -278,7 +291,7 @@ public class AiAgentService {
                    @Nullable AgentRunService runService, @Nullable String runId,
                    ExecutorService workers) {
         this(models, agentTools, gate, runner, conversations, emitters, objectMapper,
-                new ContextLimitClassifier(), runService, runId, workers);
+                new ContextLimitClassifier(), runService, runId, null, workers);
     }
 
     /** 全参构造，供测试注入同步执行器和自定义分类器。 */
@@ -287,6 +300,7 @@ public class AiAgentService {
                    ObjectProvider<AiStreamEmitter> emitters, ObjectMapper objectMapper,
                    ContextLimitClassifier contextLimitClassifier,
                    @Nullable AgentRunService runService, @Nullable String runId,
+                   @Nullable CommandExecutionService commandExecutions,
                    ExecutorService workers) {
         this.models = Objects.requireNonNull(models, "models 不得为 null");
         this.gate = Objects.requireNonNull(gate, "gate 不得为 null");
@@ -298,6 +312,7 @@ public class AiAgentService {
         this.contextLimitClassifier = Objects.requireNonNull(contextLimitClassifier, "classifier 不得为 null");
         this.runService = runService;
         this.currentRunId = runId;
+        this.commandExecutions = commandExecutions;
         // WHY 存字段：除反射工具回调外，系统提示词构建还要经它查会话 cwd（sessionCwdOf）
         this.agentTools = Objects.requireNonNull(agentTools, "agentTools 不得为 null");
 
@@ -420,9 +435,13 @@ public class AiAgentService {
             Map<String, Object> toolContext = buildToolContext(hostId, conversationId, request.sessionId());
 
             List<Message> prompt = new ArrayList<>();
-            // 注入会话 cwd：用户 cd 后问“当前目录”，模型不告知就只能猜 /（浏览器验收实证）
+            // WHY 注入最近 Shell 活动 + 嵌套环境：用户手动执行的命令和进入的嵌套环境
+            // 对 Agent 不可见（sync-shell-memory-to-agent 变更前只注入 cwd）
+            String sessionIdStr = request.sessionId() == null ? null : request.sessionId().toString();
+            List<ShellActivity> recentCommands = queryRecentManualCommands(request.sessionId());
+            NestedEnvInfo nestedEnv = buildNestedEnv(sessionIdStr);
             prompt.add(new SystemMessage(AgentSystemPrompt.build(hostLabel, toolsAvailable, thinking,
-                    agentTools.sessionCwdOf(request.sessionId() == null ? null : request.sessionId().toString()))));
+                    agentTools.sessionCwdOf(sessionIdStr), recentCommands, nestedEnv)));
             prompt.addAll(history(conversationId, MAX_HISTORY_ROWS));
 
             loopRounds(prepared.chatModel(), prompt, conversationId, hostId, hostLabel,
@@ -504,7 +523,8 @@ public class AiAgentService {
                 // WHY 在这里捕获而非在 runTurn：恢复需要重建 prompt 并让下一轮自然重试，
                 // 而不是直接结束回合
                 RecoveryOutcome outcome = tryRecoverFromContextLimit(e, prompt, conversationId,
-                        hostId, toolsAvailable, thinking, sessionCwdOfContext(toolContext));
+                        hostId, toolsAvailable, thinking, sessionCwdOfContext(toolContext),
+                        sessionIdOfContext(toolContext));
                 switch (outcome) {
                     case RECOVERED -> {
                         // WHY 不在此处重试模型调用：让循环的下一轮自然调用模型，
@@ -607,7 +627,8 @@ public class AiAgentService {
     private RecoveryOutcome tryRecoverFromContextLimit(RuntimeException exception, List<Message> currentPrompt,
                                                         UUID conversationId, @Nullable UUID hostId,
                                                         boolean toolsAvailable, boolean thinking,
-                                                        @Nullable String sessionCwd) {
+                                                        @Nullable String sessionCwd,
+                                                        @Nullable String sessionId) {
         // 步骤 1：分类异常
         if (contextLimitClassifier.classify(exception) != ContextLimitClassifier.Verdict.CONTEXT_LIMIT) {
             return RecoveryOutcome.NOT_APPLICABLE;
@@ -644,8 +665,14 @@ public class AiAgentService {
         // 这样工具调用走正常的 routeAndReport 流程（含审批），
         // 帧只发一次，审批规则与正常轮次完全一致
         currentPrompt.clear();
+        // WHY 恢复路径也注入 Shell 上下文：恢复后的轮次不能丢失用户当前目录、
+        // 最近人工命令和嵌套环境状态，否则模型在恢复后的回答质量会下降
+        UUID sessionIdUuid = sessionId != null ? UUID.fromString(sessionId) : null;
+        List<ShellActivity> recoveredRecentCommands = queryRecentManualCommands(sessionIdUuid);
+        NestedEnvInfo recoveredNestedEnv = buildNestedEnv(sessionId);
         currentPrompt.add(new SystemMessage(AgentSystemPrompt.build(
-                conversations.hostLabelOf(hostId), toolsAvailable, thinking, sessionCwd)));
+                conversations.hostLabelOf(hostId), toolsAvailable, thinking,
+                sessionCwd, recoveredRecentCommands, recoveredNestedEnv)));
         currentPrompt.addAll(history(conversationId, RECOVERY_HISTORY_ROWS));
 
         return RecoveryOutcome.RECOVERED;
@@ -806,6 +833,60 @@ public class AiAgentService {
     private String sessionCwdOfContext(Map<String, Object> toolContext) {
         Object value = toolContext.get(AgentTools.CTX_SESSION_ID);
         return value instanceof String s ? agentTools.sessionCwdOf(s) : null;
+    }
+
+    /**
+     * 从工具上下文取会话 id 字符串。
+     */
+    @Nullable
+    private static String sessionIdOfContext(Map<String, Object> toolContext) {
+        Object value = toolContext.get(AgentTools.CTX_SESSION_ID);
+        return value instanceof String s ? s : null;
+    }
+
+    /**
+     * 查询指定会话最近的人工命令列表（供系统提示词注入）。
+     *
+     * @return 最近命令列表；服务不可用或会话为 null 时返回 null
+     */
+    @Nullable
+    private List<ShellActivity> queryRecentManualCommands(@Nullable UUID sessionId) {
+        if (commandExecutions == null || sessionId == null) {
+            return null;
+        }
+        try {
+            List<ShellActivity> result = commandExecutions.recentManualCommands(sessionId, 10);
+            return result.isEmpty() ? null : result;
+        } catch (RuntimeException e) {
+            LOG.warn("查询最近人工命令失败: sessionId={} cause={}", sessionId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 构建嵌套环境信息（供系统提示词注入）。
+     *
+     * @return 嵌套环境信息；未嵌套或会话为 null 时返回 null
+     */
+    @Nullable
+    private NestedEnvInfo buildNestedEnv(@Nullable String sessionId) {
+        if (sessionId == null) {
+            return null;
+        }
+        boolean nested = agentTools.isNestedShell(sessionId);
+        if (!nested) {
+            return null;
+        }
+        // WHY 检查调度器降级状态：降级时集成不可用，提示词措辞不同
+        PtyCommandGateway gateway = agentTools.ptyGatewayRef();
+        boolean integrationAvailable = true;
+        if (gateway != null) {
+            PtyCommandScheduler scheduler = gateway.findScheduler(sessionId);
+            if (scheduler != null) {
+                integrationAvailable = !scheduler.isNestedFallback();
+            }
+        }
+        return new NestedEnvInfo(true, integrationAvailable);
     }
 
     private ToolOutcome runReadOnly(ToolName toolName, Map<String, Object> params, MutableToolCall call,

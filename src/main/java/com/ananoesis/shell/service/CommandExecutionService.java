@@ -1,6 +1,8 @@
 package com.ananoesis.shell.service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -9,9 +11,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
+import com.ananoesis.shell.ai.ShellActivity;
 import com.ananoesis.shell.entity.CommandExecution;
 import com.ananoesis.shell.mapper.CommandExecutionMapper;
 import com.ananoesis.shell.support.EntityIds;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 
 /**
  * 命令执行账本服务（tasks 6.3）。
@@ -142,5 +146,35 @@ public class CommandExecutionService {
     /** 终态（completed / unknown）不可覆盖。 */
     private static boolean isTerminal(String status) {
         return STATUS_COMPLETED.equals(status) || STATUS_UNKNOWN.equals(status);
+    }
+
+    /**
+     * 查询指定会话最近的人工命令列表（供 Agent 系统提示词注入）。
+     *
+     * <p>从 {@code command_executions} 表按 {@code session_id} 查 {@code source='manual'}
+     * 的最近 N 条（按 {@code created_at DESC}），提取命令原文和退出码。</p>
+     *
+     * @param sessionId 会话 id
+     * @param limit     最大返回条数
+     * @return 最近人工命令列表（按时间倒序）；无记录时返回空列表
+     */
+    public List<ShellActivity> recentManualCommands(UUID sessionId, int limit) {
+        Objects.requireNonNull(sessionId, "sessionId 不得为 null");
+        if (limit <= 0) {
+            return List.of();
+        }
+        QueryWrapper<CommandExecution> query = new QueryWrapper<>();
+        query.eq("session_id", sessionId.toString())
+                .eq("source", "manual")
+                .orderByDesc("created_at")
+                .last("LIMIT " + limit);
+        List<CommandExecution> rows = mapper.selectList(query);
+        List<ShellActivity> result = new ArrayList<>(rows.size());
+        for (CommandExecution row : rows) {
+            result.add(new ShellActivity(
+                    row.getCommand(),
+                    row.getExitCode() != null ? row.getExitCode() : -1));
+        }
+        return result;
     }
 }

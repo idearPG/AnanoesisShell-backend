@@ -1,5 +1,7 @@
 package com.ananoesis.shell.ai;
 
+import java.util.List;
+
 import org.springframework.lang.Nullable;
 
 /**
@@ -58,6 +60,25 @@ final class AgentSystemPrompt {
      */
     static String build(@Nullable String hostLabel, boolean toolsAvailable, boolean thinking,
                         @Nullable String sessionCwd) {
+        return build(hostLabel, toolsAvailable, thinking, sessionCwd, null, null);
+    }
+
+    /**
+     * 构造系统提示（完整参数：含最近 Shell 活动与嵌套环境信息）。
+     *
+     * <p>WHY 注入最近 Shell 活动：用户在 Shell 模式执行了命令后切换到 Agent 模式提问，
+     * 模型不知道用户刚才做了什么就无法正确引用命令结果（ai-agent spec「引用人工操作结果」场景）。</p>
+     *
+     * <p>WHY 注入嵌套环境：用户进入 Docker 容器等嵌套 Shell 后，Agent 仍以为在宿主机，
+     * 给出的命令建议可能完全错误（如 /proc/1 在容器内指向不同进程）。</p>
+     *
+     * @param recentShellCommands 最近人工命令列表，可为 null 或空（此时不渲染该段）
+     * @param nestedEnv           嵌套环境信息，可为 null（此时不渲染该段）
+     */
+    static String build(@Nullable String hostLabel, boolean toolsAvailable, boolean thinking,
+                        @Nullable String sessionCwd,
+                        @Nullable List<ShellActivity> recentShellCommands,
+                        @Nullable NestedEnvInfo nestedEnv) {
         StringBuilder prompt = new StringBuilder(2048);
         prompt.append("""
                 你是一名 Linux 运维排障助手，运行在一款本地桌面应用里，通过 SSH 协助用户诊断与处置服务器问题。
@@ -120,6 +141,36 @@ final class AgentSystemPrompt {
                     不要只留在思考过程里。
                     """);
         }
+
+        // 最近 Shell 活动：用户刚在 Shell 模式执行的命令摘要
+        if (recentShellCommands != null && !recentShellCommands.isEmpty()) {
+            prompt.append("\n## 最近 Shell 活动\n");
+            prompt.append("以下是用户最近在 Shell 模式手动执行的命令（exit=<退出码> 表示已完成）：\n");
+            for (int i = 0; i < recentShellCommands.size(); i++) {
+                ShellActivity activity = recentShellCommands.get(i);
+                prompt.append(String.valueOf(i + 1)).append(". $ ")
+                        .append(activity.command())
+                        .append(" (exit=").append(activity.exitCode()).append(")\n");
+            }
+            prompt.append("你可以引用这些命令的结果来回答用户问题，不必重复执行。\n");
+        }
+
+        // 嵌套环境：用户可能进入了 Docker 容器等嵌套 Shell
+        if (nestedEnv != null && nestedEnv.nested()) {
+            prompt.append("\n## 嵌套 Shell 环境\n");
+            if (nestedEnv.integrationAvailable()) {
+                prompt.append("用户终端当前处于嵌套 Shell 环境中（例如 Docker 容器内）。\n");
+                prompt.append("Shell 集成已重新安装，命令将在嵌套环境中执行。\n");
+                prompt.append("请注意：容器内的文件系统、进程树和网络环境与宿主机不同，\n");
+                prompt.append("给出命令建议时需考虑这一点。如需确认当前环境，可执行 hostname 或 cat /etc/hostname。\n");
+            } else {
+                prompt.append("用户终端可能处于嵌套 Shell 环境中（例如 Docker 容器内），\n");
+                prompt.append("但 Shell 集成无法在嵌套环境中工作，命令将通过 exec 通道执行。\n");
+                prompt.append("exec 通道在宿主机上运行，无法直接操作容器内部。\n");
+                prompt.append("如需确认环境，可尝试通过 exec 执行 nsenter 或 docker exec。\n");
+            }
+        }
+
         return prompt.toString();
     }
 }

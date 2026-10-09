@@ -91,6 +91,28 @@ public class ShellIntegration {
     }
 
     /**
+     * 重新安装集成代码（嵌套 Shell 检测后使用新 nonce）。
+     *
+     * <p>复用 {@link #generateBashIntegrationCode} 生成新 nonce 的代码，
+     * 经现有单行发送路径写入 PTY。嵌套 bash 中旧函数不存在，新安装代码
+     * 会保存旧 PROMPT_COMMAND（可能引用不存在的函数）并覆盖为新函数。</p>
+     *
+     * @param nonce 新的会话随机 nonce
+     * @return 安装结果
+     */
+    public Result reinstall(String nonce) {
+        if (!SHELL_BASH.equals(shellType)) {
+            LOG.info("不支持的 Shell 类型 '{}'，跳过重安装", shellType);
+            return new Result(false, shellType, "");
+        }
+        String code = generateBashIntegrationCode(nonce);
+        String singleLine = "stty -echo; " + code.substring(0, code.length() - 1) + "; stty echo\n";
+        terminalSession.send(singleLine);
+        LOG.info("已重安装 Bash 会话级集成: nonce={}", nonce);
+        return new Result(true, SHELL_BASH, nonce);
+    }
+
+    /**
      * 用调用方预生成的 nonce 安装（见 {@link #newNonce()} 的 WHY）。
      *
      * @param nonce 会话随机 nonce，嵌入控制帧供解码器过滤

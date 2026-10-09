@@ -317,6 +317,46 @@ class ShellIntegrationTest {
     }
 
     // ==================================================================
+    // 重安装
+    // ==================================================================
+
+    @Nested
+    @DisplayName("重安装")
+    class ReinstallBehavior {
+
+        @Test
+        @DisplayName("reinstall 使用新 nonce 生成并发送集成代码，与旧 nonce 不同")
+        void reinstallGeneratesNewNonceAndCode() {
+            ShellIntegration integration = new ShellIntegration(terminal, "bash");
+            ShellIntegration.Result first = integration.install();
+            String oldNonce = first.nonce();
+
+            String newNonce = ShellIntegration.newNonce();
+            ShellIntegration.Result reinstalled = integration.reinstall(newNonce);
+
+            assertThat(reinstalled.installed()).isTrue();
+            assertThat(reinstalled.nonce()).isEqualTo(newNonce);
+            assertThat(reinstalled.nonce()).isNotEqualTo(oldNonce);
+            // 新 nonce 的集成代码已写入 PTY
+            String allSent = String.join("", terminal.sentData);
+            assertThat(allSent).contains(newNonce);
+            // 旧 nonce 不出现在重装输出中（重装只发新代码）
+            String reinstallSent = terminal.sentData.get(terminal.sentData.size() - 1);
+            assertThat(reinstallSent).doesNotContain(oldNonce);
+        }
+
+        @Test
+        @DisplayName("不支持的 Shell 调用 reinstall 返回未安装")
+        void reinstallOnUnsupportedShellReturnsNotInstalled() {
+            ShellIntegration integration = new ShellIntegration(terminal, "zsh");
+            ShellIntegration.Result result = integration.reinstall("some-nonce");
+
+            assertThat(result.installed()).isFalse();
+            assertThat(terminal.sentData).isEmpty();
+        }
+    }
+
+    // ==================================================================
     // Stubs
     // ==================================================================
 

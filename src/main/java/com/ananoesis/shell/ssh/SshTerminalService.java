@@ -1,6 +1,7 @@
 package com.ananoesis.shell.ssh;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -12,9 +13,15 @@ import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import com.ananoesis.shell.config.SshProperties;
+import com.ananoesis.shell.entity.CommandExecution;
+import com.ananoesis.shell.service.CommandExecutionService;
+import com.ananoesis.shell.service.Conversation;
+import com.ananoesis.shell.service.ConversationService;
+import com.ananoesis.shell.ssh.PtyCommandScheduler.ManualCommandInfo;
 
 import jakarta.annotation.PreDestroy;
 import net.schmizz.sshj.SSHClient;
@@ -45,6 +52,8 @@ public class SshTerminalService {
     private final TerminalSessionRegistry registry;
     private final SshTargetResolver resolver;
     private final SessionRecorder recorder;
+    private final CommandExecutionService commandExecutions;
+    private final ConversationService conversations;
 
     /**
      * session_id → SessionRuntime 映射。
@@ -69,12 +78,16 @@ public class SshTerminalService {
                               SshProperties properties,
                               TerminalSessionRegistry registry,
                               SshTargetResolver resolver,
-                              SessionRecorder recorder) {
+                              SessionRecorder recorder,
+                              CommandExecutionService commandExecutions,
+                              ConversationService conversations) {
         this.connection = Objects.requireNonNull(connection, "connection 不得为 null");
         this.properties = Objects.requireNonNull(properties, "properties 不得为 null");
         this.registry = Objects.requireNonNull(registry, "registry 不得为 null");
         this.resolver = Objects.requireNonNull(resolver, "resolver 不得为 null");
         this.recorder = Objects.requireNonNull(recorder, "recorder 不得为 null");
+        this.commandExecutions = Objects.requireNonNull(commandExecutions, "commandExecutions 不得为 null");
+        this.conversations = Objects.requireNonNull(conversations, "conversations 不得为 null");
     }
 
     /**
@@ -249,27 +262,146 @@ public class SshTerminalService {
             // WHY 传 relay::switchTo：bash 安装代码会被 readline 自回显（stty -echo 压不住，
             // known-issues #14），installer 必须先经此回调把输出链切到闸门，再写安装代码，
             // 才能吞掉回显噪声；后续的 switchTo 对 bash 是幂等重绑，对非 bash 是挂回原监听器
+            // WHY 使用带 nestedDetectTimeoutMs 的重载：用户可通过配置文件调整嵌套检测阈值
             ShellIntegrationInstaller.Outcome outcome = ShellIntegrationInstaller.install(
-                    terminal, properties.getShellType(), shellTimeouts, listener, relay::switchTo);
+                    terminal, properties.getShellType(), shellTimeouts, listener, relay::switchTo,
+                    ShellIntegrationInstaller.DEFAULT_GATE_TIMEOUT_MS,
+                    properties.getNestedDetectTimeout() * 1000L);
             relay.switchTo(outcome.listener());
             if (outcome.scheduler() != null) {
                 runtime.setScheduler(outcome.scheduler());
+                // WHY 注入嵌套 Shell 回调：调度器检测到嵌套 Shell 后触发重安装，
+                // 重安装用新 nonce 和新调度器替换当前的
+                outcome.scheduler().setNestedShellCallback(() ->
+                        reinstallShellIntegration(terminal, listener, relay, runtime));
+                // WHY 注入人工命令回调：用户手动执行的命令完成后持久化到账本和对话历史，
+                // 让 Agent 模式能引用人工命令的结果（Shell → Agent 记忆同步）
+                outcome.scheduler().setManualCommandListener(
+                        info -> onManualCommandComplete(runtime.sessionId(), info));
                 LOG.info("Shell 集成已接线: session={} nonce={}",
                         runtime.sessionId(), outcome.nonce());
             }
         } catch (RuntimeException e) {
-            // 兜底恢复透传：异常可能发生在 installer 接入闸门之前（relay 还停在
+            // 兆底恢复透传：异常可能发生在 installer 接入闸门之前（relay 还停在
             // 预安装静音 #19），不切回会把用户终端永久静音；降级为人工终端的
-            // 语义就是“所有输出原样可见”，重复 switchTo 幂等无害
+            // 语义就是"所有输出原样可见"，重复 switchTo 幂等无害
             relay.switchTo(listener);
             LOG.warn("Shell 集成安装失败，本会话降级为人工模式: session={} cause={}",
                     runtime.sessionId(), String.valueOf(e.getMessage()));
         }
     }
-
+    
+    /**
+     * 嵌套 Shell 检测后重新安装集成代码（用新 nonce 和新调度器替换）。
+     *
+     * <p>WHY 失败不阻断：重装与首次安装同语义——失败仅降级为 exec 通道，
+     * 调度器内部 nestedFallback 标志会阻止后续 PTY 命令提交。</p>
+     */
+    private void reinstallShellIntegration(SshTerminalSession terminal,
+                                           TerminalOutputListener listener,
+                                           RelayOutputListener relay,
+                                           SessionRuntime runtime) {
+        try {
+            ShellIntegrationInstaller.Outcome outcome = ShellIntegrationInstaller.reinstall(
+                    terminal, properties.getShellType(), shellTimeouts, listener, relay::switchTo);
+            relay.switchTo(outcome.listener());
+            if (outcome.scheduler() != null) {
+                runtime.setScheduler(outcome.scheduler());
+                LOG.info("嵌套 Shell 集成重安装完成: session={} nonce={}",
+                        runtime.sessionId(), outcome.nonce());
+            }
+        } catch (RuntimeException e) {
+            relay.switchTo(listener);
+            LOG.warn("嵌套 Shell 集成重安装失败，降级为 exec 通道: session={} cause={}",
+                    runtime.sessionId(), String.valueOf(e.getMessage()));
+        }
+    }
+    
     @PreDestroy
     void shutdownTimeouts() {
         shellTimeouts.shutdownNow();
+    }
+
+    // ==================================================================
+    // 人工命令持久化回调（Shell → Agent 记忆同步）
+    // ==================================================================
+
+    /**
+     * 人工命令完成回调：将命令持久化到账本和对话历史。
+     *
+     * <p>WHY 在回调中做两件事：①写 {@code command_executions} 保证审计完整，
+     * ②写 {@code ai_messages} 让 Agent 上下文能引用人工命令结果。
+     * conversationId 为 null（用户从未创建对话）时只写账本，跳过对话历史。</p>
+     */
+    private void onManualCommandComplete(UUID sessionId, ManualCommandInfo info) {
+        try {
+            // 1. 写入 command_executions 账本
+            UUID conversationId = lookupConversationId(sessionId);
+            CommandExecution execution = commandExecutions.claimExecution(
+                    "manual", null, null, sessionId, conversationId, info.command());
+            // 提取输出摘要（去掉命令回显的第一行）
+            String outputSummary = extractOutputSummary(info.output(), info.command());
+            commandExecutions.markCompleted(
+                    execution.getId(), info.exitCode(), outputSummary, "",
+                    info.truncated());
+
+            // 2. 写入对话历史（conversationId 存在时）
+            if (conversationId != null) {
+                String eventContent = formatShellEventContent(info, outputSummary);
+                UUID executionUuid = UUID.fromString(execution.getId());
+                conversations.saveShellEventMessage(conversationId, eventContent,
+                        executionUuid, null);
+            }
+            LOG.debug("人工命令已持久化: session={} command={} exitCode={}",
+                    sessionId, info.command(), info.exitCode());
+        } catch (RuntimeException e) {
+            // WHY 吞异常不抛出：回调在调度器同步块内触发，异常会破坏调度器状态机
+            LOG.warn("人工命令持久化失败，不影响终端功能: session={} command={} cause={}",
+                    sessionId, info.command(), e.getMessage());
+        }
+    }
+
+    /**
+     * 从 {@code ai_conversations} 表查找绑定到指定 sessionId 的对话 ID。
+     *
+     * @return 对话 ID；未找到时返回 null（降级：只写账本，跳过对话历史）
+     */
+    @Nullable
+    private UUID lookupConversationId(UUID sessionId) {
+        List<Conversation> found = conversations.findBySession(sessionId);
+        return found.isEmpty() ? null : found.get(0).id();
+    }
+
+    /**
+     * 从 PTY 输出中提取命令结果摘要（去掉第一行命令回显）。
+     */
+    private static String extractOutputSummary(String fullOutput, String command) {
+        if (fullOutput == null || fullOutput.isEmpty()) {
+            return "";
+        }
+        // 跳过第一行命令回显
+        int nlIdx = fullOutput.indexOf('\n');
+        String afterEcho = nlIdx >= 0 ? fullOutput.substring(nlIdx + 1) : "";
+        // 去掉 \r
+        afterEcho = afterEcho.replace("\r", "");
+        // 截断到 500 字符
+        if (afterEcho.length() > 500) {
+            return afterEcho.substring(0, 500) + "\n...（已截断）";
+        }
+        return afterEcho;
+    }
+
+    /**
+     * 格式化 shell_event 消息内容。
+     */
+    private static String formatShellEventContent(ManualCommandInfo info, String outputSummary) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(info.command()).append('\n');
+        sb.append("exit=").append(info.exitCode());
+        if (!outputSummary.isEmpty()) {
+            sb.append('\n').append(outputSummary);
+        }
+        return sb.toString();
     }
 
     /**

@@ -78,4 +78,19 @@ public class PtyCommandGateway {
         }
         return runtime.scheduler();
     }
+
+    /**
+     * 查询指定会话是否处于嵌套 Shell 环境（如 Docker 容器内）。
+     *
+     * <p>WHY 挂在本类而非让 AiAgentService 直连调度器：与 {@link #findScheduler} 同理，
+     * 本类已持有 {@link SshTerminalService} 的查找链，复用现成路由改动面最小。
+     * 会话不存在/未集成时安全返回 false，系统提示词因此不渲染嵌套段。</p>
+     *
+     * @param sessionId 终端会话 id，可为 null
+     * @return true 表示处于嵌套 Shell 或已降级为 exec 通道模式
+     */
+    public boolean isNestedShell(String sessionId) {
+        PtyCommandScheduler scheduler = findScheduler(sessionId);
+        return scheduler != null && scheduler.isNestedShell();
+    }
 }

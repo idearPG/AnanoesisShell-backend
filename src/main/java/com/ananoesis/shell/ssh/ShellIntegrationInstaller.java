@@ -162,4 +162,81 @@ public final class ShellIntegrationInstaller {
                 gateTimeoutMillis, TimeUnit.MILLISECONDS);
         return new Outcome(scheduler, wrapping, nonce);
     }
+
+    /**
+     * 可配置嵌套检测超时的安装（生产环境使用）。
+     *
+     * @param nestedDetectTimeoutMs 嵌套 Shell 帧超时检测阈值（毫秒），0 表示禁用
+     */
+    public static Outcome install(SshTerminalSession terminal, String shellType,
+                                  ScheduledExecutorService timeouts,
+                                  TerminalOutputListener delegate,
+                                  Consumer<TerminalOutputListener> outputChainSwitch,
+                                  long gateTimeoutMillis,
+                                  long nestedDetectTimeoutMs) {
+        // WHY 与无 nestedDetectTimeoutMs 参数版本相同逻辑，只是调度器构造时传入自定义超时
+        Objects.requireNonNull(terminal, "terminal 不得为 null");
+        Objects.requireNonNull(timeouts, "timeouts 不得为 null");
+        Objects.requireNonNull(delegate, "delegate 不得为 null");
+        Objects.requireNonNull(outputChainSwitch, "outputChainSwitch 不得为 null");
+
+        ShellIntegration integration = new ShellIntegration(terminal, shellType);
+        if (!ShellIntegration.SHELL_BASH.equals(shellType)) {
+            return new Outcome(null, delegate, "");
+        }
+
+        String nonce = ShellIntegration.newNonce();
+        PtyCommandScheduler scheduler = new PtyCommandScheduler(
+                terminal, nonce, timeouts,
+                PtyCommandScheduler.DEFAULT_TIMEOUT_MS,
+                PtyCommandScheduler.DEFAULT_INTERRUPT_WATCH_MS,
+                PtyCommandScheduler.DEFAULT_MAX_ABSOLUTE_MS,
+                PtyCommandScheduler.DEFAULT_BUSY_EXPIRE_MS,
+                nestedDetectTimeoutMs);
+        final boolean[] gateOpen = {false};
+        ShellFrameDecoder decoder = new ShellFrameDecoder(nonce, frame -> {
+            gateOpen[0] = true;
+            scheduler.onFrame(frame);
+        });
+        scheduler.onIntegrationSuccess();
+
+        TerminalOutputListener wrapping = new TerminalOutputListener() {
+            @Override
+            public void onStdout(String data) {
+                String clean = decoder.decode(data);
+                scheduler.collectOutput(clean);
+                if (gateOpen[0] && !clean.isEmpty()) {
+                    delegate.onStdout(clean);
+                }
+            }
+            @Override
+            public void onStderr(String data) {
+                delegate.onStderr(data);
+            }
+            @Override
+            public void onClosed(SshCloseReason reason) {
+                scheduler.onStopping();
+                delegate.onClosed(reason);
+            }
+        };
+
+        outputChainSwitch.accept(wrapping);
+        integration.install(nonce);
+        timeouts.schedule(() -> gateOpen[0] = true,
+                gateTimeoutMillis, TimeUnit.MILLISECONDS);
+        return new Outcome(scheduler, wrapping, nonce);
+    }
+
+    /**
+     * 在既有 PTY 会话上重新安装 Shell 集成（嵌套 Shell 检测后使用新 nonce）。
+     *
+     * <p>复用现有 install 路径，但使用新 nonce 和新调度器。返回新 Outcome，
+     * 调用方负责替换 runtime 的 scheduler 和输出链。</p>
+     */
+    public static Outcome reinstall(SshTerminalSession terminal, String shellType,
+                                    ScheduledExecutorService timeouts,
+                                    TerminalOutputListener delegate,
+                                    Consumer<TerminalOutputListener> outputChainSwitch) {
+        return install(terminal, shellType, timeouts, delegate, outputChainSwitch);
+    }
 }

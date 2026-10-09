@@ -76,6 +76,12 @@ public class PtyCommandScheduler {
     /** design.md D3：64 KiB 单命令采集上限。 */
     static final int MAX_COLLECTION_BYTES = 65536;
 
+    /** 嵌套 Shell 探测默认超时（毫秒）：MANUAL_IDLE 超过此时间无帧活动则发送探测命令。 */
+    static final long DEFAULT_NESTED_DETECT_TIMEOUT_MS = 8_000;
+
+    /** 嵌套 Shell 探测标记——与 $$ (PID) 拼接后写入 PTY，回显中检测此标记确认嵌套 Shell 存在。 */
+    static final String NESTED_PROBE_MARKER = "_ANANOESIS_NESTED_PROBE_";
+
     /**
      * PTY 路径等待方的 get 上限（秒）。
      *
@@ -133,6 +139,12 @@ public class PtyCommandScheduler {
     /** MANUAL_BUSY 自愈时限（见 {@link #DEFAULT_BUSY_EXPIRE_MS}）。 */
     private final long busyExpireMs;
 
+    /**
+     * 嵌套 Shell 帧超时检测阈值（毫秒）：MANUAL_IDLE 超过此时间无任何帧活动则触发探测。
+     * 0 表示禁用嵌套检测（保持旧行为）。
+     */
+    private final long nestedDetectTimeoutMs;
+
     // ==================================================================
     // 运行时状态
     // ==================================================================
@@ -152,8 +164,49 @@ public class PtyCommandScheduler {
     /** busy 自愈定时任务（每次人工按键重新调度，可取消）。 */
     private ScheduledFuture<?> pendingBusyExpire;
 
+    /** 嵌套探测定时任务（MANUAL_IDLE 帧超时后触发）。 */
+    private ScheduledFuture<?> pendingNestedProbe;
+
+    /**
+     * 最近一次帧活动时刻（纳秒）：任何帧（PROMPT/CWD/CMD_START/CMD_END）或
+     * collectOutput 输出均刷新。WHY 独立于 currentCommand.lastActivityNanos：
+     * 嵌套检测需在无在飞命令时也能判定"Shell 应该持续产出帧但实际没有"。
+     */
+    private volatile long lastFrameNanos = System.nanoTime();
+
+    /** 嵌套探测状态机：IDLE→PROBE_SENT→PROBE_CONFIRMED→REINSTALL_TRIGGERED / FALLBACK。 */
+    private enum NestedState { IDLE, PROBE_SENT, PROBE_CONFIRMED, FALLBACK }
+    private NestedState nestedState = NestedState.IDLE;
+
+    /** 集成重安装尝试次数（最多 1 次）。 */
+    private int nestedReinstallAttempts = 0;
+
+    /** 嵌套 Shell 回调：探测确认后通知调用方触发集成重安装。 */
+    private volatile Runnable nestedShellCallback;
+
+    /** 人工命令完成回调：人工命令（CMD_END + PROMPT 序列）完成后通知上层持久化。 */
+    private volatile ManualCommandListener manualCommandListener;
+
     /** 是否已收到 CMD_END（用于判断 PROMPT 是否标志着命令完成）。 */
     private boolean cmdEndReceived;
+
+    // ==================================================================
+    // 人工命令追踪（Shell → Agent 记忆同步）
+    // ==================================================================
+
+    /**
+     * 人工命令输出累积缓冲：MANUAL_BUSY 期间 CMD_START 后的 PTY 输出。
+     * 包含命令回显和实际输出，供回调提取命令文本与输出摘要。
+     */
+    private final StringBuilder manualOutputBuffer = new StringBuilder();
+    private int manualCollectedBytes = 0;
+    private boolean manualOutputTruncated = false;
+
+    /** 人工命令退出码（CMD_END 帧中解析）。 */
+    private int manualExitCode = ExecOutcome.EXIT_CODE_UNKNOWN;
+
+    /** 人工命令是否有 CMD_START 证据（区分"用户敲了 Enter"和"命令正在跑"）。 */
+    private boolean manualCmdStartReceived;
 
     /**
      * 会话级当前工作目录（最新一条 CWD 帧的路径，无论来自人工 cd 还是 Agent 命令）。
@@ -218,6 +271,23 @@ public class PtyCommandScheduler {
                                long interruptWatchMs,
                                long maxAbsoluteMs,
                                long busyExpireMs) {
+        this(terminalSession, expectedNonce, scheduler, timeoutMs, interruptWatchMs,
+                maxAbsoluteMs, busyExpireMs, DEFAULT_NESTED_DETECT_TIMEOUT_MS);
+    }
+
+    /**
+     * 全参构造（含嵌套 Shell 检测超时）。
+     *
+     * @param nestedDetectTimeoutMs 嵌套 Shell 帧超时检测阈值（毫秒），0 表示禁用
+     */
+    public PtyCommandScheduler(SshTerminalSession terminalSession,
+                               String expectedNonce,
+                               ScheduledExecutorService scheduler,
+                               long timeoutMs,
+                               long interruptWatchMs,
+                               long maxAbsoluteMs,
+                               long busyExpireMs,
+                               long nestedDetectTimeoutMs) {
         this.terminalSession = Objects.requireNonNull(terminalSession, "terminalSession 不得为 null");
         this.expectedNonce = Objects.requireNonNull(expectedNonce, "expectedNonce 不得为 null");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler 不得为 null");
@@ -225,6 +295,7 @@ public class PtyCommandScheduler {
         this.interruptWatchMs = interruptWatchMs;
         this.maxAbsoluteMs = maxAbsoluteMs;
         this.busyExpireMs = busyExpireMs;
+        this.nestedDetectTimeoutMs = nestedDetectTimeoutMs;
     }
 
     // ==================================================================
@@ -246,6 +317,46 @@ public class PtyCommandScheduler {
         return currentCommand != null ? currentCommand.lastCwd : null;
     }
 
+    /**
+     * 设置嵌套 Shell 检测回调（探测确认后调用）。
+     *
+     * <p>WHY 用 Runnable 而非具体类型：调度器不依赖上层服务类，
+     * 回调由 SshTerminalService 在构造后注入，触发集成重安装。</p>
+     */
+    public void setNestedShellCallback(Runnable callback) {
+        this.nestedShellCallback = callback;
+    }
+
+    /** 嵌套降级标志：true 表示集成重安装失败，submitCommand 将拒绝并走 exec 回落。 */
+    public boolean isNestedFallback() {
+        return nestedState == NestedState.FALLBACK;
+    }
+
+    /**
+     * 当前是否处于嵌套 Shell 环境（探测已确认或已降级）。
+     *
+     * <p>WHY 暴露给上层：Agent 系统提示需要告知模型用户可能进入了 Docker 容器等
+     * 嵌套环境，否则模型不知道 Shell 环境已变化，给出基于宿主机的错误建议。</p>
+     *
+     * @return true 表示探测确认处于嵌套 Shell 或已降级为 exec 通道模式
+     */
+    public boolean isNestedShell() {
+        return nestedState == NestedState.PROBE_CONFIRMED
+                || nestedState == NestedState.FALLBACK;
+    }
+
+    /**
+     * 设置人工命令完成回调。
+     *
+     * <p>WHY 用回调而非直接依赖：调度器不依赖 ConversationService 等上层服务类，
+     * 回调由 SshTerminalService 在构造后注入，负责将人工命令持久化到对话历史。</p>
+     *
+     * @param listener 回调；可为 null（清除回调）
+     */
+    public void setManualCommandListener(ManualCommandListener listener) {
+        this.manualCommandListener = listener;
+    }
+
     // ==================================================================
     // 集成事件
     // ==================================================================
@@ -259,8 +370,13 @@ public class PtyCommandScheduler {
     public void onIntegrationSuccess() {
         synchronized (this) {
             this.state = State.MANUAL_IDLE;
+            this.lastFrameNanos = System.nanoTime();
+            this.nestedState = NestedState.IDLE;
+            this.nestedReinstallAttempts = 0;
         }
         LOG.debug("Shell 集成成功，调度器进入 manual_idle");
+        // WHY 在锁外启动探测：避免死锁（scheduleNestedProbe 内部 synchronized）
+        scheduleNestedProbe();
     }
 
     /**
@@ -365,6 +481,7 @@ public class PtyCommandScheduler {
             cancelTimeout();
             cancelWatch();
             cancelBusyExpire();
+            cancelNestedProbe();
             if (currentCommand != null) {
                 terminalSession.send(CTRL_C);
             }
@@ -402,6 +519,12 @@ public class PtyCommandScheduler {
         }
 
         synchronized (this) {
+            // WHY 嵌套降级优先于状态机判定：集成重安装失败后帧协议不可用，
+            // 命令边界无法识别，继续经 PTY 提交只会挂死——必须走 exec 回落
+            if (nestedState == NestedState.FALLBACK) {
+                return failedFuture(new IllegalArgumentException(
+                        "嵌套 Shell 降级模式：PTY 集成不可用，请经 exec 通道执行"));
+            }
             switch (state) {
                 case MANUAL_IDLE:
                     return dispatchCommand(command);
@@ -436,6 +559,13 @@ public class PtyCommandScheduler {
         }
 
         synchronized (this) {
+            // 任何控制帧都是帧活动的证据——刷新嵌套检测计时器
+            lastFrameNanos = System.nanoTime();
+            // 帧到达说明集成正常工作，重置嵌套探测状态
+            if (nestedState != NestedState.IDLE && nestedState != NestedState.FALLBACK) {
+                cancelNestedProbe();
+                nestedState = NestedState.IDLE;
+            }
             // 任何控制帧都是命令存活的证据（如长命令末尾的 CWD/CMD_END 帧），
             // 刷新空闲计时起点
             if (currentCommand != null) {
@@ -479,10 +609,29 @@ public class PtyCommandScheduler {
             return;
         }
         synchronized (this) {
+            // WHY 始终刷新帧活动时刻：嵌套 Shell 检测需要在无在飞命令时也能判定
+            // "Shell 应该持续产出帧但实际没有"——任何 PTY 输出都说明 Shell 活跃
+            lastFrameNanos = System.nanoTime();
+
+            // 嵌套探测标记检测：无论调度状态，探测回显到达即确认嵌套 Shell
+            if (nestedState == NestedState.PROBE_SENT && data.contains(NESTED_PROBE_MARKER)) {
+                LOG.info("嵌套 Shell 探测标记已确认，触发集成重安装");
+                nestedState = NestedState.PROBE_CONFIRMED;
+                Runnable cb = nestedShellCallback;
+                if (cb != null) {
+                    cb.run();
+                }
+                return;
+            }
+
             if (currentCommand != null && state == State.AGENT_OWNED) {
                 // 输出活动刷新空闲计时：持续刷进度的安装命令不得被误杀（BUG-A）
                 currentCommand.lastActivityNanos = System.nanoTime();
                 currentCommand.appendOutput(data);
+            } else if (currentCommand == null && manualCmdStartReceived) {
+                // WHY 累积人工命令输出：CMD_START 后的 PTY 输出属于该命令的回显+结果，
+                // 供回调提取命令文本与输出摘要，写入对话历史让 Agent 可见
+                appendManualOutput(data);
             }
         }
     }
@@ -500,6 +649,9 @@ public class PtyCommandScheduler {
         this.currentCommand = pending;
         this.state = State.AGENT_OWNED;
         this.cmdEndReceived = false;
+        // WHY 重置人工命令追踪：Agent 命令接管 PTY 后，之前的人工命令追踪状态
+        // 不再有意义，不清理会导致后续 PROMPT 帧误触发人工命令回调
+        this.manualCmdStartReceived = false;
 
         // WHY 以换行结尾：PTY 的 stdin 模拟键盘输入，
         // 命令文本 + Enter 才会被 Shell 解析执行
@@ -546,25 +698,38 @@ public class PtyCommandScheduler {
             // （如 top/vim/嵌套 Shell），取消自愈——否则 Ctrl-C 会杀死用户程序，
             // 恢复重新依赖 PROMPT 链路（用例③语义）
             cancelBusyExpire();
+            // WHY 标记人工命令开始：CMD_START 是帧协议确认的"命令正在执行"证据，
+            // 后续的 collectOutput 输出才属于该命令（而非用户打字回显或 Shell 噪声）。
+            // 重置输出缓冲以准备累积该命令的输出
+            manualCmdStartReceived = true;
+            manualOutputBuffer.setLength(0);
+            manualCollectedBytes = 0;
+            manualOutputTruncated = false;
+            manualExitCode = ExecOutcome.EXIT_CODE_UNKNOWN;
         }
     }
 
     private void handleCmdEnd(ShellFrame frame) {
-        if (currentCommand == null || state != State.AGENT_OWNED) {
-            return;
-        }
-        // 解析退出码
+        // 解析退出码（Agent 命令与人工命令共用解析逻辑）
         int exitCode;
         try {
             exitCode = Integer.parseInt(frame.payload());
         } catch (NumberFormatException e) {
             exitCode = ExecOutcome.EXIT_CODE_UNKNOWN;
         }
-        currentCommand.exitCode = exitCode;
-        cmdEndReceived = true;
-        LOG.trace("CMD_END: cmdId={} exitCode={}", frame.commandId(), exitCode);
-        // WHY 不在此处完成命令：还需等 PROMPT 帧确认 Shell 已回到提示符，
-        // 否则下一条命令的输入可能与上一条的输出混在一起
+
+        if (currentCommand != null && state == State.AGENT_OWNED) {
+            currentCommand.exitCode = exitCode;
+            cmdEndReceived = true;
+            LOG.trace("CMD_END: cmdId={} exitCode={}", frame.commandId(), exitCode);
+            // WHY 不在此处完成命令：还需等 PROMPT 帧确认 Shell 已回到提示符，
+            // 否则下一条命令的输入可能与上一条的输出混在一起
+        } else if (currentCommand == null && manualCmdStartReceived) {
+            // WHY 记录人工命令退出码：CMD_END 帧的 cmdId=0 或不属于 Agent 命令，
+            // 但退出码是人工命令完成的证据之一，供回调传递给上层持久化
+            manualExitCode = exitCode;
+            LOG.trace("CMD_END (manual): exitCode={}", exitCode);
+        }
     }
 
     private void handleCwd(ShellFrame frame) {
@@ -590,9 +755,17 @@ public class PtyCommandScheduler {
             // 唯一证据——WS input 钩子把状态标成 busy 后，若无此路径则永久 busy，
             // 后续获准命令全被拒（Shell → Agent 交接失效的根因之一）
             if (state == State.MANUAL_BUSY) {
+                // WHY 人工命令完成回调：有 CMD_START 证据说明用户确实跑了一条命令，
+                // 此时 PROMPT 标志着命令已完成（Shell 回到空提示符）。
+                // 将命令原文、退出码、输出摘要传递给上层，供持久化到对话历史
+                if (manualCmdStartReceived) {
+                    fireManualCommandComplete();
+                }
                 state = State.MANUAL_IDLE;
                 // PROMPT 是比自愈更强的恢复证据，取消待触发的清行任务
                 cancelBusyExpire();
+                // 重置人工命令追踪状态
+                manualCmdStartReceived = false;
                 // 可能有人工忙碌期间排队的命令等待执行
                 tryDispatchNext();
             }
@@ -749,6 +922,178 @@ public class PtyCommandScheduler {
             pendingWatch.cancel(false);
             pendingWatch = null;
         }
+    }
+
+    // ==================================================================
+    // 嵌套 Shell 探测
+    // ==================================================================
+
+    /**
+     * 调度嵌套 Shell 探测任务：MANUAL_IDLE 且距上次帧活动超过阈值时触发。
+     *
+     * <p>WHY 在 onIntegrationSuccess 后启动而非构造器：集成未成功时探测无意义，
+     * 且 onIntegrationSuccess 会重置 lastFrameNanos 作为首次探测的起算点。</p>
+     */
+    private void scheduleNestedProbe() {
+        if (nestedDetectTimeoutMs <= 0) {
+            return; // 禁用嵌套检测
+        }
+        cancelNestedProbe();
+        pendingNestedProbe = scheduler.schedule(
+                this::onNestedProbeTimeout, nestedDetectTimeoutMs, TimeUnit.MILLISECONDS);
+    }
+
+    /** 取消嵌套探测任务（帧到达/命令派发/停止时调用）。 */
+    private void cancelNestedProbe() {
+        if (pendingNestedProbe != null) {
+            pendingNestedProbe.cancel(false);
+            pendingNestedProbe = null;
+        }
+    }
+
+    /**
+     * 嵌套探测定时器到期：检查帧活动是否恢复。
+     *
+     * <p>若仍处于 MANUAL_IDLE 且无帧活动，发送探测命令。若已发送探测但未收到回显，
+     * 再等一个超时后降级。</p>
+     */
+    private void onNestedProbeTimeout() {
+        synchronized (this) {
+            if (state != State.MANUAL_IDLE || currentCommand != null) {
+                // 有命令在飞或状态不是 idle：探测无意义，重置
+                nestedState = NestedState.IDLE;
+                return;
+            }
+
+            long idleMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - lastFrameNanos);
+            if (idleMs < nestedDetectTimeoutMs) {
+                // 帧活动已恢复（用户刚敲过键或收到帧），重新调度
+                scheduleNestedProbe();
+                return;
+            }
+
+            if (nestedState == NestedState.IDLE) {
+                // 首次超时：发送探测命令
+                LOG.info("帧活动超时（{}ms），发送嵌套 Shell 探测命令", idleMs);
+                nestedState = NestedState.PROBE_SENT;
+                terminalSession.send("echo " + NESTED_PROBE_MARKER + "$$\n");
+                // 再等一个超时周期确认探测结果
+                scheduleNestedProbe();
+            } else if (nestedState == NestedState.PROBE_SENT) {
+                // 探测已发送但未收到回显（也无帧）：可能是用户离开座位，
+                // 不一定是嵌套 Shell——重置为 IDLE 避免误判
+                LOG.debug("嵌套探测已发送但无回显，重置为 IDLE（可能是用户离开）");
+                nestedState = NestedState.IDLE;
+                scheduleNestedProbe();
+            } else if (nestedState == NestedState.PROBE_CONFIRMED) {
+                // 重装已触发但未生效（再等一个周期后仍无帧）：降级
+                if (nestedReinstallAttempts < 1) {
+                    nestedReinstallAttempts++;
+                    Runnable cb = nestedShellCallback;
+                    if (cb != null) {
+                        cb.run();
+                    }
+                    scheduleNestedProbe();
+                } else {
+                    LOG.warn("嵌套 Shell 集成重安装失败，降级为 exec 通道模式");
+                    nestedState = NestedState.FALLBACK;
+                }
+            }
+        }
+    }
+
+    // ==================================================================
+    // 人工命令追踪：输出累积与回调
+    // ==================================================================
+
+    /**
+     * 追加一段输出到人工命令缓冲。
+     *
+     * <p>与 Agent 命令的 {@link PendingCommand#appendOutput} 逻辑类似，
+     * 但独立缓冲——人工命令输出不进 Agent 命令的采集缓冲区。</p>
+     */
+    private void appendManualOutput(String data) {
+        byte[] bytes = data.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        int room = MAX_COLLECTION_BYTES - manualCollectedBytes;
+        if (room > 0) {
+            int take = Math.min(room, bytes.length);
+            manualOutputBuffer.append(data, 0, Math.min(take, data.length()));
+            manualCollectedBytes += take;
+        }
+        if (manualCollectedBytes >= MAX_COLLECTION_BYTES) {
+            manualOutputTruncated = true;
+        }
+    }
+
+    /**
+     * 触发人工命令完成回调：提取命令文本（从输出缓冲的第一行回显），
+     * 构造 {@link ManualCommandInfo} 并通知上层。
+     */
+    private void fireManualCommandComplete() {
+        String fullOutput = manualOutputBuffer.toString();
+        String commandText = extractCommandFromEcho(fullOutput);
+        String cwd = this.sessionCwd;
+
+        ManualCommandListener listener = this.manualCommandListener;
+        if (listener != null) {
+            ManualCommandInfo info = new ManualCommandInfo(
+                    commandText, manualExitCode, fullOutput,
+                    manualOutputTruncated, cwd);
+            try {
+                listener.onManualCommandComplete(info);
+            } catch (Exception e) {
+                LOG.warn("人工命令回调异常: command={} cause={}", commandText, e.getMessage());
+            }
+        } else {
+            LOG.debug("人工命令完成但无回调注册: command={} exitCode={}", commandText, manualExitCode);
+        }
+    }
+
+    /**
+     * 从 PTY 输出缓冲中提取命令文本（第一行回显）。
+     *
+     * <p>PTY 输出包含命令回显（用户键入的文本被终端回显）和命令输出。
+     * 命令文本通常是第一行（去掉首尾空白和 \r）。</p>
+     *
+     * @param output 完整的 PTY 输出缓冲
+     * @return 提取的命令文本；无法提取时返回空字符串
+     */
+    static String extractCommandFromEcho(String output) {
+        if (output == null || output.isEmpty()) {
+            return "";
+        }
+        // 取第一行作为命令回显
+        int nlIdx = output.indexOf('\n');
+        String firstLine = nlIdx >= 0 ? output.substring(0, nlIdx) : output;
+        // 去掉 \r 和首尾空白
+        return firstLine.replace("\r", "").trim();
+    }
+
+    /**
+     * 人工命令完成信息。
+     *
+     * @param command   命令原文（从 PTY 回显提取）
+     * @param exitCode  退出码
+     * @param output    完整输出（含命令回显 + 命令结果）
+     * @param truncated 输出是否被截断
+     * @param cwd       命令执行后的工作目录
+     */
+    public record ManualCommandInfo(
+            String command,
+            int exitCode,
+            String output,
+            boolean truncated,
+            String cwd) {}
+
+    /**
+     * 人工命令完成回调接口。
+     *
+     * <p>WHY 独立接口：调度器不依赖 ConversationService 等上层服务类，
+     * 通过回调解耦，保持调度器的纯 SSH 层职责。</p>
+     */
+    @FunctionalInterface
+    public interface ManualCommandListener {
+        void onManualCommandComplete(ManualCommandInfo info);
     }
 
     // ==================================================================

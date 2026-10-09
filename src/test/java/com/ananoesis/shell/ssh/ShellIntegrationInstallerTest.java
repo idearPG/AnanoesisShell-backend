@@ -155,6 +155,24 @@ class ShellIntegrationInstallerTest {
         assertThat(delegate.closedReasons).containsExactly(SshCloseReason.USER_DISCONNECT);
     }
 
+    @Test
+    @DisplayName("reinstall 产出新 Outcome（新调度器 + 新 nonce），与原始安装互不干扰")
+    void reinstallProducesNewOutcome() {
+        ShellIntegrationInstaller.Outcome original =
+                ShellIntegrationInstaller.install(terminal, "bash", timeouts, delegate, NOOP_SWITCH);
+
+        ShellIntegrationInstaller.Outcome reinstalled =
+                ShellIntegrationInstaller.reinstall(terminal, "bash", timeouts, delegate, NOOP_SWITCH);
+
+        assertThat(reinstalled.scheduler()).isNotNull();
+        assertThat(reinstalled.scheduler()).isNotSameAs(original.scheduler());
+        assertThat(reinstalled.nonce()).isNotEmpty();
+        assertThat(reinstalled.nonce()).isNotEqualTo(original.nonce());
+        // 重装集成代码已写入 PTY 且包含新 nonce
+        String allSent = String.join("", terminal.sentData);
+        assertThat(allSent).contains(reinstalled.nonce());
+    }
+
     /** 不关心输出链切换的用例传入的空回调。 */
     private static final java.util.function.Consumer<TerminalOutputListener> NOOP_SWITCH = l -> { };
 

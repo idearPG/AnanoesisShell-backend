@@ -63,6 +63,16 @@ public class SshProperties {
      */
     private Duration keepAliveInterval = Duration.ofSeconds(30);
 
+    /**
+     * 嵌套 Shell 帧超时检测阈值（秒）：MANUAL_IDLE 超过此时间无帧活动则触发探测。
+     * 0 表示禁用嵌套检测（保持旧行为）。
+     *
+     * <p>WHY 默认 8 秒：覆盖正常嵌套 Shell 启动时间（bash 启动 ~200ms + PROMPT_COMMAND
+     * 报错 ~50ms），又不至于让用户等太久。用户离开座位场景由探测命令的"无回显则重置"
+     * 逻辑覆盖，不会误判。</p>
+     */
+    private int nestedDetectTimeout = 8;
+
     public Duration getConnectTimeout() {
         return connectTimeout;
     }
@@ -141,5 +151,13 @@ public class SshProperties {
 
     public void setKeepAliveInterval(Duration keepAliveInterval) {
         this.keepAliveInterval = keepAliveInterval;
+    }
+
+    public int getNestedDetectTimeout() {
+        return nestedDetectTimeout;
+    }
+
+    public void setNestedDetectTimeout(int nestedDetectTimeout) {
+        this.nestedDetectTimeout = nestedDetectTimeout;
     }
 }
