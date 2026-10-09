@@ -661,9 +661,12 @@ public class AiAgentService {
     private RoundResult streamRound(ChatModel model, List<Message> prompt,
                                     UUID conversationId, boolean thinking) {
         RoundResult result = new RoundResult();
-        // 仅思考模式启用内联标签分流：与 reasoningContent 同口径，非思考模式
-        // 没有解析思考的授权，模型输出什么就透传什么（回归用例钉住）
-        InlineThinkTagParser inlineThink = thinking ? new InlineThinkTagParser() : null;
+        // WHY 始终创建内联标签解析器：Qwen3 类模型在 content 流内嵌 <think>...</think> 标签，
+        // 无论 thinkingMode 是否启用（thinkingMode 只控制请求侧 enable_thinking 与
+        // reasoning_content 元数据读取），模型实际输出的内联标签都需要分流到 thinking_delta，
+        // 否则 <think> 原文会作为 answer_delta 透传给用户——这是用户在内网电脑看到的症状。
+        // 若模型不输出 <think> 标签，解析器零开销直通，不影响正常回答。
+        InlineThinkTagParser inlineThink = new InlineThinkTagParser();
         for (ChatResponse chunk : model.stream(new Prompt(prompt)).toIterable()) {
             if (stopRequested.contains(conversationId)) {
                 // 流式读期间停止：立即中断消费，不把半截回答继续推给前端（BUG-B）

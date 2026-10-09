@@ -333,18 +333,25 @@ class AiAgentServiceTest extends AbstractSqliteIntegrationTest {
     }
 
     @Test
-    @DisplayName("非思考模式：内联 think 标签原样透传，不解析（与 reasoningContent 回显同口径）")
-    void nonThinkingModePassesInlineTagsThrough() {
+    @DisplayName("非思考模式：内联 think 标签仍然分流到 thinking_delta（模型实际输出优先于配置）")
+    void nonThinkingModeStillParsesInlineThinkTags() {
         ScriptedChatModel model = ScriptedChatModel.builder()
-                .round(ScriptedChatModel.content("正文" + THINK_OPEN + "标签原文")).build();
+                .round(ScriptedChatModel.content(
+                        "正文" + THINK_OPEN + "思考内容" + THINK_CLOSE + "回答"))
+                .build();
 
         agentFor(new StubChatModelProvider(model, ThinkingMode.NON_THINKING))
                 .runTurn(new TurnRequest(conversationId, hostId, "问一句"));
 
-        assertThat(emitter.ofType(AiStreamFrame.Type.THINKING_DELTA)).isEmpty();
+        // WHY 非思考模式也解析内联标签：thinkingMode 只控制请求侧 enable_thinking
+        // 与 reasoning_content 元数据读取，但模型在 content 流内嵌的 <think> 标签
+        // 是实际输出格式，不解析就会作为原文透传给用户（BUG 实证：内网电脑看到裸标签）
+        assertThat(emitter.joinedContent(AiStreamFrame.Type.THINKING_DELTA))
+                .as("内联 think 标签内容应分流到 thinking_delta")
+                .isEqualTo("思考内容");
         assertThat(emitter.joinedContent(AiStreamFrame.Type.ANSWER_DELTA))
-                .as("非思考模式没有解析思考的授权，模型说什么就展示什么")
-                .isEqualTo("正文" + THINK_OPEN + "标签原文");
+                .as("标签外的正文和回答应走 answer_delta")
+                .isEqualTo("正文回答");
     }
 
     @Test
