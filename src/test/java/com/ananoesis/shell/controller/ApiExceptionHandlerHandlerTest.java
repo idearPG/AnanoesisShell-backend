@@ -1,19 +1,15 @@
 package com.ananoesis.shell.controller;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.ananoesis.shell.contract.model.ErrorCode;
 import com.ananoesis.shell.security.CredentialProtectionException;
-import com.ananoesis.shell.service.ConflictException;
 import com.ananoesis.shell.service.InvalidRequestException;
 import com.ananoesis.shell.service.NotFoundException;
-import com.ananoesis.shell.service.TransferConflictException;
-import com.ananoesis.shell.service.TransferQuotaExceededException;
 
 /**
  * {@link ApiExceptionHandler} handler 方法分支补测。

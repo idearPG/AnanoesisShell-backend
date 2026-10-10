@@ -1,20 +1,20 @@
 package com.ananoesis.shell.ai;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.when;
-
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import org.springframework.ai.chat.model.ToolContext;
 
 import com.ananoesis.shell.service.SettingsService;
 import com.ananoesis.shell.ssh.ExecOutcome;
@@ -23,8 +23,6 @@ import com.ananoesis.shell.ssh.PtyCommandScheduler;
 import com.ananoesis.shell.ssh.SessionRuntime;
 import com.ananoesis.shell.ssh.SshExecService;
 import com.ananoesis.shell.ssh.SshTerminalService;
-
-import org.springframework.ai.chat.model.ToolContext;
 
 /**
  * {@link AgentTools} 静态/包私有方法的分支覆盖。

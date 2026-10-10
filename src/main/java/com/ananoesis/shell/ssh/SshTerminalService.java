@@ -47,6 +47,15 @@ public class SshTerminalService {
 
     private static final Logger LOG = LoggerFactory.getLogger(SshTerminalService.class);
 
+    /**
+     * 嵌套 Shell 重装次数上限（每 session）。
+     * WHY 3 次：钩子永久失效时（如用户 .bashrc 覆盖 PROMPT_COMMAND），
+     * 无限重装循环会持续向 PTY 写入集成脚本噪声并反复替换调度器，
+     * 表现为终端重复提示符 + 连接反复重装。超过上限后放弃重装，
+     * 当前调度器停留在 FALLBACK 状态，后续命令走 exec 通道兜底。
+     */
+    private static final int MAX_NESTED_REINSTALL_ATTEMPTS = 3;
+
     private final SshConnectionService connection;
     private final SshProperties properties;
     private final TerminalSessionRegistry registry;
@@ -296,11 +305,26 @@ public class SshTerminalService {
      *
      * <p>WHY 失败不阻断：重装与首次安装同语义——失败仅降级为 exec 通道，
      * 调度器内部 nestedFallback 标志会阻止后续 PTY 命令提交。</p>
+     *
+     * <p>WHY 次数上限：钩子永久失效时（如用户 .bashrc 覆盖 PROMPT_COMMAND），
+     * 无限重装循环会持续向 PTY 写入集成脚本噪声并反复替换调度器，
+     * 表现为终端重复提示符 + 连接反复重装。超过上限后放弃重装，
+     * 当前调度器停留在 FALLBACK 状态，后续命令走 exec 通道兜底。</p>
      */
     private void reinstallShellIntegration(SshTerminalSession terminal,
                                            TerminalOutputListener listener,
                                            RelayOutputListener relay,
                                            SessionRuntime runtime) {
+        // WHY 重装次数上限：钩子永久失效时（如用户 .bashrc 覆盖 PROMPT_COMMAND），
+        // 无限重装循环会持续向 PTY 写入集成脚本噪声并反复替换调度器，
+        // 表现为终端重复提示符 + 连接反复重装。超过上限后放弃重装，
+        // 当前调度器停留在 FALLBACK 状态，后续命令走 exec 通道兜底
+        long attemptCount = runtime.incrementAndGetNestedReinstallCount();
+        if (attemptCount > MAX_NESTED_REINSTALL_ATTEMPTS) {
+            LOG.warn("嵌套 Shell 重安装次数超限（>{}/session），放弃重装，后续命令走 exec 通道: session={}",
+                    MAX_NESTED_REINSTALL_ATTEMPTS, runtime.sessionId());
+            return;
+        }
         try {
             ShellIntegrationInstaller.Outcome outcome = ShellIntegrationInstaller.reinstall(
                     terminal, properties.getShellType(), shellTimeouts, listener, relay::switchTo);

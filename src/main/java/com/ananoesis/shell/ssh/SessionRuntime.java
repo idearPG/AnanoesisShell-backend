@@ -76,6 +76,22 @@ public class SessionRuntime {
      */
     private volatile PtyCommandScheduler scheduler;
 
+    // ---- 嵌套 Shell 重装次数计数（防无限循环） ----
+    /**
+     * 嵌套 Shell 重装尝试次数。
+     * WHY AtomicInteger：虽然回调在调度器的同步块内调用，但多个调度器实例（旧 vs 新）
+     * 的定时器可能在并发线程上触发，用原子计数器保证线程安全。
+     */
+    private final AtomicLong nestedReinstallCount = new AtomicLong(0);
+
+    /**
+     * 递增并返回嵌套重装次数。
+     * @return 递增后的次数
+     */
+    public long incrementAndGetNestedReinstallCount() {
+        return nestedReinstallCount.incrementAndGet();
+    }
+
     /**
      * 构造运行时。
      *

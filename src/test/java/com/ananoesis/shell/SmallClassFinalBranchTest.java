@@ -1,19 +1,18 @@
 package com.ananoesis.shell;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import com.ananoesis.shell.support.Timestamps;
-import com.ananoesis.shell.ssh.SshAuthMethod;
-import com.ananoesis.shell.ssh.SshTarget;
-import com.ananoesis.shell.service.TransferProgressWatchdog;
 import com.ananoesis.shell.desktop.DesktopSessionStore;
 import com.ananoesis.shell.mapper.SettingMapper;
+import com.ananoesis.shell.service.TransferProgressWatchdog;
+import com.ananoesis.shell.ssh.SshAuthMethod;
+import com.ananoesis.shell.ssh.SshTarget;
+import com.ananoesis.shell.support.Timestamps;
 import com.ananoesis.shell.ws.ToolName;
 
 /**
