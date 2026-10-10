@@ -236,11 +236,15 @@ public final class ShellIntegrationInstaller {
      *
      * <p>复用现有 install 路径，但使用新 nonce 和新调度器。返回新 Outcome，
      * 调用方负责替换 runtime 的 scheduler 和输出链。</p>
+     *
+     * @param nestedDetectTimeoutMs 嵌套 Shell 帧超时检测阈值（毫秒），必须与初始安装一致
      */
     public static Outcome reinstall(SshTerminalSession terminal, String shellType,
                                     ScheduledExecutorService timeouts,
                                     TerminalOutputListener delegate,
-                                    Consumer<TerminalOutputListener> outputChainSwitch) {
-        return install(terminal, shellType, timeouts, delegate, outputChainSwitch);
+                                    Consumer<TerminalOutputListener> outputChainSwitch,
+                                    long nestedDetectTimeoutMs) {
+        return install(terminal, shellType, timeouts, delegate, outputChainSwitch,
+                DEFAULT_GATE_TIMEOUT_MS, nestedDetectTimeoutMs);
     }
 }

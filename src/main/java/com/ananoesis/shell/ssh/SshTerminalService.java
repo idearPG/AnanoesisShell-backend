@@ -327,7 +327,8 @@ public class SshTerminalService {
         }
         try {
             ShellIntegrationInstaller.Outcome outcome = ShellIntegrationInstaller.reinstall(
-                    terminal, properties.getShellType(), shellTimeouts, listener, relay::switchTo);
+                    terminal, properties.getShellType(), shellTimeouts, listener, relay::switchTo,
+                    properties.getNestedDetectTimeout() * 1000L);
             relay.switchTo(outcome.listener());
             if (outcome.scheduler() != null) {
                 runtime.setScheduler(outcome.scheduler());
