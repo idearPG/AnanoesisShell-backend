@@ -400,7 +400,9 @@ public class SshTerminalService {
     @Nullable
     private UUID lookupConversationId(UUID sessionId) {
         List<Conversation> found = conversations.findBySession(sessionId);
-        return found.isEmpty() ? null : found.get(0).id();
+        // WHY 用 getId() 而非 id()：Conversation 是 OpenAPI 生成物（builder 风格），
+        // 只有 id(UUID) setter 与 getId() getter，不存在 record 风格的无参 id()
+        return found.isEmpty() ? null : found.get(0).getId();
     }
 
     /**

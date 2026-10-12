@@ -186,7 +186,13 @@ public class ShellIntegration {
                 "  return $_ANANOESIS_S",
                 "}",
                 "_ananoesis_debug_hook() {",
-                "  if [ -z \"$_ANANOESIS_CMD_ID\" ]; then",
+                // WHY FUNCNAME 防护：set -T 使 DEBUG trap 继承进函数，prompt_hook 清空
+                // CMD_ID 后其内部的 [ / eval 等命令会再次触发 DEBUG trap——若无防护会发出
+                // 伪造 cmd_start 帧，伪造值占用 CMD_ID，下一真实命令的 cmd_start 被跳过，
+                // 采集闸门永不开、输出全拒（内网实测工具拿 exit=0 空 stdout 根因）。
+                // DEBUG trap 触发时 FUNCNAME[1] 是触发上下文函数：真实命令在 main scope
+                // 为空，PROMPT_COMMAND 内部触发时是 _ananoesis_prompt_hook，据此排除。
+                "  if [ -z \"$_ANANOESIS_CMD_ID\" ] && [ \"${FUNCNAME[1]:-}\" != \"_ananoesis_prompt_hook\" ]; then",
                 "    _ANANOESIS_CMD_ID=\"$(date +%s%N)\"",
                 "    printf '\\033]1337;cmd_start;%s;%s;\\007' \"$_ANANOESIS_NONCE\" \"$_ANANOESIS_CMD_ID\"",
                 "  fi",

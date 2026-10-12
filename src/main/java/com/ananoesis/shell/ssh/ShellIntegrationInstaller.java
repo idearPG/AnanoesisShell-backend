@@ -23,9 +23,10 @@ import org.springframework.lang.Nullable;
  * <h2>数据流（安装成功后）</h2>
  * <pre>
  * PTY 输出 → 闸门监听器.onStdout
- *              ├─ decoder.decode()：剥离 OSC 控制帧（首个真实帧同时打开闸门）
- *              ├─ scheduler.collectOutput(干净文本)：agent_owned 时采集命令输出（不受闸门影响）
- *              └─ 闸门已开 → delegate.onStdout(干净文本)；未开 → 吞掉安装回显
+ *              ├─ decoder.decodeCollecting()：剥离 OSC 控制帧（帧暂存，不与文本混序）
+ *              ├─ scheduler.collectOutput(干净文本)：agent_owned 时采集命令输出（先于帧处理）
+ *              ├─ 逐帧处理：置开闸门 + scheduler.onFrame(frame)（驱动状态机）
+ *              └─ 闸门已开 → delegate.onStdout(采集返回文本)；未开 → 吞掉安装回显
  * </pre>
  *
  * <h2>为什么要服务端闸门</h2>
@@ -127,16 +128,39 @@ public final class ShellIntegrationInstaller {
 
             @Override
             public void onStdout(String data) {
-                // WHY 先剥帧再采集再判闸门：三段顺序缺一不可——
-                // 帧驱动调度器的 CMD_START/CMD_END/PROMPT 状态转换；
-                // 干净文本供采集（agent 命令输出）——采集 MUST NOT 被闸门吞，
-                // 否则 Agent 命令输出丢失；展示转发才受闸门控制
-                String clean = decoder.decode(data);
-                // WHY 以采集返回值为转发依据：嵌套探针回显块由 collectOutput 判定
-                // 并抑制（返回空串），转发方必须尊重返回值，探针噪声才不会漏到用户终端
-                String forward = scheduler.collectOutput(clean);
-                if (gateOpen[0] && !forward.isEmpty()) {
-                    delegate.onStdout(forward);
+                // WHY 按流内 offset 交替处理帧与文本（同批数据里还原真实顺序）：
+                // 仅「整批文本先于帧」会在命令开始侧丢输出——快命令的 CMD_START
+                // 帧常与输出同批，输出先于 CMD_START 处理时采集闸门未开即拒采
+                // （内网实测 sed 返回 exit=0 空 stdout）；仅「帧先于文本」又会在
+                // 命令完成侧丢输出（decode 同步回调在 PROMPT 处提前完成命令）。
+                // 帧带 textOffset 后按位置交替：帧前文本先采集、帧处驱动状态机、
+                // 帧后文本再采集，两侧语义同时成立。
+                ShellFrameDecoder.Decoded decoded = decoder.decodeCollecting(data);
+                String text = decoded.text();
+                StringBuilder forward = new StringBuilder();
+                int pos = 0;
+                for (ShellFrameDecoder.FrameSlice slice : decoded.frames()) {
+                    if (slice.textOffset() > pos) {
+                        // WHY 以采集返回值为转发依据：嵌套探针回显块由 collectOutput
+                        // 判定并抑制（返回空串），转发方必须尊重返回值，探针噪声才不会漏到用户终端
+                        String seg = scheduler.collectOutput(text.substring(pos, slice.textOffset()));
+                        if (!seg.isEmpty()) {
+                            forward.append(seg);
+                        }
+                    }
+                    // 首个真实帧同时打开闸门；帧驱动调度器状态机
+                    gateOpen[0] = true;
+                    scheduler.onFrame(slice.frame());
+                    pos = slice.textOffset();
+                }
+                if (pos < text.length()) {
+                    String seg = scheduler.collectOutput(text.substring(pos));
+                    if (!seg.isEmpty()) {
+                        forward.append(seg);
+                    }
+                }
+                if (gateOpen[0] && forward.length() > 0) {
+                    delegate.onStdout(forward.toString());
                 }
             }
 
@@ -205,12 +229,36 @@ public final class ShellIntegrationInstaller {
         TerminalOutputListener wrapping = new TerminalOutputListener() {
             @Override
             public void onStdout(String data) {
-                String clean = decoder.decode(data);
-                // WHY 以采集返回值为转发依据：嵌套探针回显块由 collectOutput 判定
-                // 并抑制（返回空串），转发方必须尊重返回值，探针噪声才不会漏到用户终端
-                String forward = scheduler.collectOutput(clean);
-                if (gateOpen[0] && !forward.isEmpty()) {
-                    delegate.onStdout(forward);
+                // WHY 按流内 offset 交替处理帧与文本（与 install 包装监听器同一根因）：
+                // 同批数据里 decode 的同步帧回调会提前完成命令（命令完成侧丢输出），
+                // 整批文本先于帧又会在命令开始侧把 CMD_START 前的输出拒采
+                // （exit=0 空输出）。帧带 textOffset 后按位置交替处理两侧语义同时成立。
+                ShellFrameDecoder.Decoded decoded = decoder.decodeCollecting(data);
+                String text = decoded.text();
+                StringBuilder forward = new StringBuilder();
+                int pos = 0;
+                for (ShellFrameDecoder.FrameSlice slice : decoded.frames()) {
+                    if (slice.textOffset() > pos) {
+                        // WHY 以采集返回值为转发依据：嵌套探针回显块由 collectOutput
+                        // 判定并抑制（返回空串），转发方必须尊重返回值，探针噪声才不会漏到用户终端
+                        String seg = scheduler.collectOutput(text.substring(pos, slice.textOffset()));
+                        if (!seg.isEmpty()) {
+                            forward.append(seg);
+                        }
+                    }
+                    // 首个真实帧同时打开闸门；帧驱动调度器状态机
+                    gateOpen[0] = true;
+                    scheduler.onFrame(slice.frame());
+                    pos = slice.textOffset();
+                }
+                if (pos < text.length()) {
+                    String seg = scheduler.collectOutput(text.substring(pos));
+                    if (!seg.isEmpty()) {
+                        forward.append(seg);
+                    }
+                }
+                if (gateOpen[0] && forward.length() > 0) {
+                    delegate.onStdout(forward.toString());
                 }
             }
             @Override

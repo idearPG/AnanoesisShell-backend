@@ -7,6 +7,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +73,15 @@ public class AgentTools {
             "nproc 2>/dev/null || echo '(无 nproc 命令)'");
 
     private static final String INTERNAL_ERROR_MESSAGE = "服务器内部错误，请查看后端日志获取详情";
+
+    /**
+     * wc -l 结果行：可选前导空白 + 数字 + 空白 + 非空白（路径）。
+     *
+     * <p>WHY 按行匹配而非取首 token：内网实测 wc 的 stdout 头部会混入上一条命令的
+     * 完成提示符与本命令回显（首行是 "[root@localhost ~]# wc -l '...'"），取首 token
+     * 解析必败；结果行恒为 "&lt;数字&gt; &lt;路径&gt;" 形态，逐行扫描数字开头的行即可。</p>
+     */
+    private static final Pattern WC_TOTAL_PATTERN = Pattern.compile("\\s*(\\d+)\\s+\\S.*");
 
     private final SshExecService exec;
     private final SettingsService settings;
@@ -204,10 +215,17 @@ public class AgentTools {
             return -1;
         }
         try {
-            // wc -l 输出格式："  1234 /path/to/file"
-            String firstToken = wcOutcome.stdout().trim().split("\\s+")[0];
-            return Long.parseLong(firstToken);
-        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            // wc -l 输出格式："  1234 /path/to/file"。逐行扫描数字开头的行：
+            // stdout 头部可能混入提示符/回显，只有结果行匹配 WC_TOTAL_PATTERN
+            for (String line : wcOutcome.stdout().split("\\r?\\n")) {
+                Matcher matcher = WC_TOTAL_PATTERN.matcher(line);
+                if (matcher.matches()) {
+                    return Long.parseLong(matcher.group(1));
+                }
+            }
+            LOG.debug("wc -l 输出无总行数行: {}", wcOutcome.stdout());
+            return -1;
+        } catch (NumberFormatException e) {
             LOG.debug("wc -l 输出解析失败: {}", wcOutcome.stdout());
             return -1;
         }

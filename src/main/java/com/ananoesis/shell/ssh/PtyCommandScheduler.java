@@ -83,6 +83,24 @@ public class PtyCommandScheduler {
     static final String NESTED_PROBE_MARKER = "_ANANOESIS_NESTED_PROBE_";
 
     /**
+     * 探测抑制的吞尾窗口（毫秒）：PROMPT 帧到达后，此窗口内到达的文本块
+     * 全部吞掉（bash 重印的提示符紧跟 PROMPT 帧到达，帧与文本的到达间隔是
+     * 微秒级，窗口远超所需）；窗口过后恢复透传。
+     */
+    static final long PROBE_PROMPT_TAIL_MS = 300;
+
+    /**
+     * 探测抑制的硬截止（毫秒）：从发送探针起算，超过此时长无条件恢复透传
+     * 并尝试派发抑制期间排队的命令。
+     *
+     * <p>WHY 需要硬截止：吞尾窗口（{@link #PROBE_PROMPT_TAIL_MS}）的恢复判断
+     * 依赖窗口后有文本块到达才触发，PROMPT 帧后长时间无文本时抑制会一直
+     * 挂到下一个探测周期裁决（默认 8 秒），抑制期间排队的 Agent 命令被迫
+     * 等满整个周期；硬截止把最坏等待压缩到固定时长。</p>
+     */
+    static final long PROBE_SUPPRESS_MAX_MS = 1500;
+
+    /**
      * PTY 路径等待方的 get 上限（秒）。
      *
      * <p>WHY 必须晚于调度器自己的绝对上限：调度器会在上限处主动中断并完成
@@ -176,9 +194,36 @@ public class PtyCommandScheduler {
 
     /** 嵌套探测状态机：IDLE→PROBE_SENT→（回显+窗口内无帧：回调+FALLBACK）／（无回显或任意帧到达：回 IDLE）。 */
     private enum NestedState { IDLE, PROBE_SENT, FALLBACK }
-    
-        /** 探针回显是否已到达（shell 存活证据；与 PROMPT 帧缺失组合才构成嵌套确认）。 */
-        private boolean probeEchoed;
+
+    /** 探针回显是否已到达（shell 存活证据；与 PROMPT 帧缺失组合才构成嵌套确认）。 */
+    private boolean probeEchoed;
+
+    /**
+     * 探测输出抑制激活：从发送探针到其产生的提示符被吞掉为止，一切文本输出
+     * 都抑制透传。
+     *
+     * <p>WHY 独立于 nestedState：帧到达会立即把 nestedState 重置回 IDLE，
+     * 但探针的 echo 输出行与提示符文本可能跟在帧后面到达——bash 5 系
+     * DEBUG trap 的 cmd_start 帧先于 echo 输出（openEuler 实测），CentOS 7
+     * 上提示符文本跟在 PROMPT 帧之后。若抑制以 nestedState 为条件，这些
+     * 文本会漏到用户终端：探针输出行泄漏 + 每个探测周期多出一个空提示符
+     * 行（内网实测「[root@localhost ~]# [root@localhost ~]#」重复提示符）。</p>
+     */
+    private boolean probeSuppressActive = false;
+
+    /**
+     * 抑制期间收到 PROMPT 帧的时刻（纳秒）：PROMPT 帧后 bash 紧接着重印
+     * 提示符，帧与提示符文本可能分在不同网络块到达。以此起算一个短吞尾
+     * 窗口，窗口内的文本块全部吞掉、窗口过后恢复透传。
+     *
+     * <p>WHY 不用「帧后首个文本块当提示符」：分块竞态下帧后的首个块可能
+     * 只是探针输出（真正的提示符文本在下一块），吞错块会把提示符泄漏到
+     * 用户终端（内网实测重复提示符经此路径仍复现）。</p>
+     *
+     * <p>0 表示尚未收到 PROMPT 帧。</p>
+     */
+    private long promptAfterProbeNanos = 0;
+
     private NestedState nestedState = NestedState.IDLE;
 
     /** 集成重安装尝试次数（最多 1 次）。 */
@@ -529,6 +574,14 @@ public class PtyCommandScheduler {
             }
             switch (state) {
                 case MANUAL_IDLE:
+                    // WHY 抑制窗口内排队而非直接派发：探测抑制是为吞掉探针自身的
+                    // 回显/输出/提示符重印而开启，命令在窗口内派发时其回显与输出
+                    // 会被 collectOutput 的抑制分支吞掉且不采集（内网实测 list_dir
+                    // 返回 exit=0 但 stdout 空，模型因空输出幻觉文件列表）。排队等
+                    // 到抑制结束（吞尾恢复、裁决或硬截止）再派发，保证输出完整采集
+                    if (probeSuppressActive) {
+                        return enqueueCommand(command);
+                    }
                     return dispatchCommand(command);
                 case AGENT_OWNED:
                     return enqueueCommand(command);
@@ -563,13 +616,13 @@ public class PtyCommandScheduler {
         synchronized (this) {
             // 任何控制帧都是帧活动的证据——刷新嵌套检测计时器
             lastFrameNanos = System.nanoTime();
-            // 帧到达说明集成正常工作，重置嵌套探测状态
+            // 帧到达说明集成正常工作，重置嵌套探测状态。
+            // 注意：不清 probeEchoed 与 probeSuppressActive——探针的 echo 输出
+            // 行与提示符文本可能跟在帧后面到达，抑制必须持续到它们被吞掉
+            //（见 collectOutput 的抑制分支）；probeEchoed 由发探针时统一复位
             if (nestedState != NestedState.IDLE && nestedState != NestedState.FALLBACK) {
                 cancelNestedProbe();
                 nestedState = NestedState.IDLE;
-                // WHY 同步清回显标志：帧到达即钩子存活，本窗口裁决已终结，
-                // 残留标志混入下一窗口会造成假确认
-                probeEchoed = false;
             }
             // WHY 帧后重排探测（兑现上方「刷新嵌套检测计时器」的语义）：帧只是暂时
             // 打断空闲判定，命令结束后仍需持续监测嵌套 Shell——docker exec 进容器
@@ -593,6 +646,12 @@ public class PtyCommandScheduler {
                     break;
                 case PROMPT:
                     handlePrompt(frame);
+                    // WHY 探测抑制的结束信号：PROMPT 帧说明探针命令已执行完，
+                    // 其后 bash 立即重印提示符——记录时刻，让 collectOutput 在
+                    // 吞尾窗口内把提示符文本一并吞掉（见 PROBE_PROMPT_TAIL_MS）
+                    if (probeSuppressActive) {
+                        promptAfterProbeNanos = System.nanoTime();
+                    }
                     break;
             }
         }
@@ -624,24 +683,45 @@ public class PtyCommandScheduler {
             // "Shell 应该持续产出帧但实际没有"——任何 PTY 输出都说明 Shell 活跃
             lastFrameNanos = System.nanoTime();
 
-            // WHY 探针回显只记录不确认：正常 bash 也会回显 echo 命令及其输出，
-            // 「回显到达」不构成嵌套证据——嵌套与否取决于探针后有无 PROMPT 帧
-            // （钩子活着必产 PROMPT）。旧逻辑回显即确认，健康 shell 空闲即被
-            // 误判嵌套 → 重安装 → 新调度器再探测 → 死循环（内网实测多行探针
-            // 泄漏 + 连接被循环重装打断）。确认改由探测超时统一裁决。
-            if (nestedState == NestedState.PROBE_SENT && data.contains(NESTED_PROBE_MARKER)) {
-                probeEchoed = true;
-                // WHY 整块抑制探针回显：探针是普通 echo，其命令回显行与输出行都不在
-                // OSC 帧协议内，解码器剥不掉；透传会直接漏到用户终端（内网实测 4 行
-                // 探针泄漏）。探测窗口内终端无其他活动，含标记的数据块整体吞掉，
-                // 噪声抑制优先于块内逐行保真；返回空串即通知转发方丢弃本块
-                return "";
+            // WHY 探测窗口内整块抑制一切文本（探针命令回显行、echo 输出行、
+            // 探针执行完后 bash 重新打印的提示符文本）：这些都不在 OSC 帧协议
+            // 内，解码器剥不掉。若只抑制含标记的块且以 nestedState 为条件，
+            // 帧（如 bash 5 系 DEBUG trap 的 cmd_start）先于输出行到达时，
+            // onFrame 已把状态重置回 IDLE，输出行照样泄漏到用户终端；而提示
+            // 符文本跟在 PROMPT 帧之后到达，透传会在用户终端上每个探测周期
+            // 多出一个空提示符行（内网实测重复提示符即此来源）
+            if (probeSuppressActive) {
+                if (data.contains(NESTED_PROBE_MARKER)) {
+                    // WHY 回显只记录不确认：正常 bash 也会回显 echo 命令及其
+                    // 输出，回显只证明 shell 存活；嵌套与否由探测超时统一裁决
+                    // （有回显 + 窗口内零集成帧才确认，钩子活着必产 PROMPT 帧）
+                    probeEchoed = true;
+                }
+                // PROMPT 帧已到达且当前块已越过吞尾窗口：探针响应（回显、
+                // 输出、提示符重印）已全部吞净，恢复透传并放行当前块。
+                // WHY 以窗口而非「帧后首个块」判定提示符：帧与提示符文本可能
+                // 分在不同网络块，首个块可能只是探针输出，按块判定会吞错块、
+                // 把真正的提示符泄漏到用户终端（内网实测重复提示符即此路径）
+                if (promptAfterProbeNanos > 0
+                        && System.nanoTime() - promptAfterProbeNanos
+                        > TimeUnit.MILLISECONDS.toNanos(PROBE_PROMPT_TAIL_MS)) {
+                    probeSuppressActive = false;
+                    promptAfterProbeNanos = 0;
+                    // 当前块已属窗口外内容：不吞，落到下方透传分支
+                } else {
+                    return "";
+                }
             }
 
             if (currentCommand != null && state == State.AGENT_OWNED) {
                 // 输出活动刷新空闲计时：持续刷进度的安装命令不得被误杀（BUG-A）
                 currentCommand.lastActivityNanos = System.nanoTime();
-                currentCommand.appendOutput(data);
+                // WHY 采集闸门：CMD_START 帧前到达的文本属于上一条命令的完成提示符，
+                // 采集进本命令缓冲会把 stdout 首行污染成提示符（内网实测 wc 总行数
+                // 解析失败根因）——只拒采集、不拒刷新活动计时（文本仍是 Shell 存活的证据）
+                if (currentCommand.cmdStartSeen) {
+                    currentCommand.appendOutput(data);
+                }
             } else if (currentCommand == null && manualCmdStartReceived) {
                 // WHY 累积人工命令输出：CMD_START 后的 PTY 输出属于该命令的回显+结果，
                 // 供回调提取命令文本与输出摘要，写入对话历史让 Agent 可见
@@ -649,6 +729,10 @@ public class PtyCommandScheduler {
             }
 
             // 未命中探针抑制：原样返回，转发方以返回值为透传依据
+            // WHY 在透传判定之后尝试派发排队命令：抑制恢复点的当前文本块属于
+            // 窗口外的用户可见内容，必须原样透传；若先派发，state 已变
+            // agent_owned，该块会被误采集进新命令缓冲（见 submitCommand 排队分支）
+            tryDispatchNext();
             return data;
         }
     }
@@ -658,8 +742,17 @@ public class PtyCommandScheduler {
     // ==================================================================
 
     private CompletableFuture<CommandResult> dispatchCommand(String command) {
-        String cmdId = String.valueOf(commandIdCounter.incrementAndGet());
-        PendingCommand pending = new PendingCommand(cmdId, command);
+        return dispatchPending(new PendingCommand(
+                String.valueOf(commandIdCounter.incrementAndGet()), command));
+    }
+
+    /**
+     * 派发一个已创建的挂起命令。
+     *
+     * <p>WHY 复用同一 PendingCommand 而非重建：排队命令在入队时已持有等待方
+     * 的 future，重建会把原 future 丢弃、等待方永远等不到结果。</p>
+     */
+    private CompletableFuture<CommandResult> dispatchPending(PendingCommand pending) {
         // 存活计时从派发时刻起算：排队命令的构造时间不能计入空闲/绝对时长
         pending.dispatchedNanos = System.nanoTime();
         pending.lastActivityNanos = pending.dispatchedNanos;
@@ -672,13 +765,13 @@ public class PtyCommandScheduler {
 
         // WHY 以换行结尾：PTY 的 stdin 模拟键盘输入，
         // 命令文本 + Enter 才会被 Shell 解析执行
-        terminalSession.send(command + "\n");
+        terminalSession.send(pending.commandText + "\n");
 
         // 启动超时计时
         pendingTimeout = scheduler.schedule(
                 this::onTimeout, timeoutMs, TimeUnit.MILLISECONDS);
 
-        LOG.debug("命令已派发: cmdId={} command={}", cmdId, command);
+        LOG.debug("命令已派发: cmdId={} command={}", pending.commandId, pending.commandText);
         return pending.future;
     }
 
@@ -695,9 +788,18 @@ public class PtyCommandScheduler {
         if (state != State.MANUAL_IDLE || commandQueue.isEmpty()) {
             return;
         }
+        if (nestedState == NestedState.FALLBACK) {
+            // WHY FALLBACK 时队列命令以异常完成：帧协议不可用，派发会挂死，
+            // 与 submitCommand 的 FALLBACK 拒绝语义保持一致（调用方走 exec 回落）
+            while (!commandQueue.isEmpty()) {
+                commandQueue.poll().future.completeExceptionally(
+                        new IllegalStateException("嵌套 Shell 降级模式：PTY 集成不可用，请经 exec 通道执行"));
+            }
+            return;
+        }
         PendingCommand next = commandQueue.poll();
         if (next != null) {
-            dispatchCommand(next.commandText);
+            dispatchPending(next);
         }
     }
 
@@ -709,6 +811,9 @@ public class PtyCommandScheduler {
         // WHY 仅记录日志：CMD_START 确认命令开始执行，
         // 但不改变状态机的转换——派发时已进入 agent_owned
         if (currentCommand != null) {
+            // WHY 打开采集闸门：此前的 PTY 文本（上一条命令的完成提示符）
+            // 已在 collectOutput 中被拒采（见 PendingCommand.cmdStartSeen）
+            currentCommand.cmdStartSeen = true;
             LOG.trace("CMD_START: cmdId={}", frame.commandId());
         } else if (state == State.MANUAL_BUSY) {
             // busy 且无 Agent 命令在飞时收到 CMD_START = 用户前台命令在跑
@@ -999,10 +1104,22 @@ public class PtyCommandScheduler {
                 nestedState = NestedState.PROBE_SENT;
                 // WHY 每轮探测前重置回显标志：上一窗口的残留标志不得参与本轮裁决
                 probeEchoed = false;
+                // 开启探测输出抑制：探针回显、echo 输出与执行完后的提示符
+                // 全部吞掉，直到 PROMPT 帧后的提示符文本被吞掉或本轮裁决
+                probeSuppressActive = true;
+                promptAfterProbeNanos = 0;
                 terminalSession.send("echo " + NESTED_PROBE_MARKER + "$$\n");
+                // 硬截止兜底：无论回显/PROMPT 帧是否到达，截止时强制恢复透传
+                // 并派发抑制期间排队的命令（见 onProbeSuppressDeadline）
+                scheduler.schedule(this::onProbeSuppressDeadline,
+                        PROBE_SUPPRESS_MAX_MS, TimeUnit.MILLISECONDS);
                 // 再等一个超时周期确认探测结果
                 scheduleNestedProbe();
             } else if (nestedState == NestedState.PROBE_SENT) {
+                // 无论裁决结果如何，本轮抑制到此结束：钩子死亡（无帧）时抑制
+                // 已持续整个窗口，继续吞会掩盖用户此后的正常输出
+                probeSuppressActive = false;
+                promptAfterProbeNanos = 0;
                 if (probeEchoed) {
                     // WHY 回显+窗口内无帧才构成嵌套确认：窗口内回显到达只证明 shell
                     // 存活（正常 bash 也回显 echo），整个窗口没有产生任何集成帧才证明
@@ -1026,7 +1143,29 @@ public class PtyCommandScheduler {
                     nestedState = NestedState.IDLE;
                     scheduleNestedProbe();
                 }
+                // WHY 在裁决后派发：FALLBACK 时 tryDispatchNext 会把队列命令以
+                // 异常完成（走 exec 回落）；IDLE 时正常派发。抑制期间排队的命令
+                // 无论裁决结果如何都不能留在队列里空等
+                tryDispatchNext();
             }
+        }
+    }
+
+    /**
+     * 探测抑制硬截止：无条件结束抑制并尝试派发抑制期间排队的命令。
+     *
+     * <p>WHY 独立于吞尾窗口与裁决：吞尾恢复依赖窗口后有文本块到达，
+     * PROMPT 帧后长时间无文本时抑制会挂到下一探测周期；硬截止保证抑制
+     * 时长有界（{@link #PROBE_SUPPRESS_MAX_MS}），排队命令及时派发。</p>
+     */
+    private void onProbeSuppressDeadline() {
+        synchronized (this) {
+            if (!probeSuppressActive) {
+                return; // 已在吞尾窗口或裁决处恢复
+            }
+            probeSuppressActive = false;
+            promptAfterProbeNanos = 0;
+            tryDispatchNext();
         }
     }
 
@@ -1176,6 +1315,15 @@ public class PtyCommandScheduler {
         boolean timedOut = false;
         Integer exitCode = null;
         String lastCwd = null;
+        /**
+         * 是否已收到本命令的 CMD_START 帧。
+         *
+         * <p>WHY 采集以此标志为条件：PROMPT 帧完成上一条命令后调度器立即派发本命令，
+         * 而上一条命令的完成提示符文本随后才到达（内网实测与 CMD_START 帧同批、
+         * 文本先于帧被处理）——旧实现把它采集进本命令缓冲，stdout 首行变成提示符，
+         * wc 等依赖首 token 的解析全部失效。CMD_START 前到达的文本一律不采集。</p>
+         */
+        boolean cmdStartSeen = false;
 
         PendingCommand(String commandId, String commandText) {
             this.commandId = commandId;
