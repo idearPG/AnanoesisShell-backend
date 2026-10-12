@@ -379,4 +379,140 @@ class ShellFrameDecoderTest {
             assertThat(frames).hasSize(1);
         }
     }
+
+    // ==================================================================
+    // decodeCollecting（帧暂存 API）
+    // ==================================================================
+
+    @Nested
+    @DisplayName("decodeCollecting")
+    class DecodeCollecting {
+
+        @Test
+        @DisplayName("帧暂存进返回值，不回调 consumer，且与文本顺序一致")
+        void framesCollectedNotDispatched() {
+            ShellFrameDecoder.Decoded decoded = decoder.decodeCollecting(
+                    "ls-out\r\n"
+                            + "\u001B]1337;cmd_end;" + NONCE + ";1;0\u0007"
+                            + "\u001B]1337;prompt;" + NONCE + ";1;\u0007"
+                            + "[root@localhost ~]# ");
+
+            assertThat(decoded.text()).isEqualTo("ls-out\r\n[root@localhost ~]# ");
+            assertThat(decoded.frames()).hasSize(2);
+            assertThat(decoded.frames().get(0).frame().type()).isEqualTo(ShellFrameType.CMD_END);
+            assertThat(decoded.frames().get(1).frame().type()).isEqualTo(ShellFrameType.PROMPT);
+            // WHY 暂存路径不得回调 consumer：帧处理顺序由调用方决定（先采集后帧）
+            assertThat(frames).isEmpty();
+        }
+
+        @Test
+        @DisplayName("帧携带 textOffset：帧在干净文本流中的插入点（保序处理的依据）")
+        void frameSliceCarriesTextOffset() {
+            ShellFrameDecoder.Decoded decoded = decoder.decodeCollecting(
+                    "hello\u001B]1337;cwd;" + NONCE + ";c1;/tmp\u0007world");
+
+            assertThat(decoded.text()).isEqualTo("helloworld");
+            assertThat(decoded.frames()).hasSize(1);
+            assertThat(decoded.frames().get(0).frame().type()).isEqualTo(ShellFrameType.CWD);
+            // 帧完成时干净文本缓冲长 5（"hello"）——帧位于 hello 与 world 之间
+            assertThat(decoded.frames().get(0).textOffset()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("批首帧 offset=0：同批帧后接输出时可先开采集闸门再采文本")
+        void frameAtBatchStartHasZeroOffset() {
+            ShellFrameDecoder.Decoded decoded = decoder.decodeCollecting(
+                    "\u001B]1337;cmd_start;" + NONCE + ";1;\u0007"
+                            + "root:x:0:0:root:/root:/bin/bash\r\n");
+
+            assertThat(decoded.frames()).hasSize(1);
+            assertThat(decoded.frames().get(0).frame().type()).isEqualTo(ShellFrameType.CMD_START);
+            assertThat(decoded.frames().get(0).textOffset()).isZero();
+            assertThat(decoded.text()).startsWith("root:x:0:0");
+        }
+
+        @Test
+        @DisplayName("decode 与 decodeCollecting 互不干扰，共享同一解析状态机")
+        void decodeAndCollectingShareParserState() {
+            // 前半段帧经暂存路径取出，后半段帧经回调路径分发：
+            // 两者共用同一状态机，混合调用不丢帧不串文本
+            ShellFrameDecoder.Decoded decoded = decoder.decodeCollecting(
+                    "a\u001B]1337;cmd_start;" + NONCE + ";1;\u0007");
+            assertThat(decoded.text()).isEqualTo("a");
+            assertThat(decoded.frames()).hasSize(1);
+            assertThat(frames).isEmpty();
+
+            String display = decoder.decode("b\u001B]1337;cwd;" + NONCE + ";1;/tmp\u0007");
+            assertThat(display).isEqualTo("b");
+            assertThat(frames).hasSize(1);
+            assertThat(frames.get(0).type()).isEqualTo(ShellFrameType.CWD);
+        }
+
+        @Test
+        @DisplayName("null/空输入返回空文本与空帧列表")
+        void nullOrEmptyInputReturnsEmpty() {
+            assertThat(decoder.decodeCollecting(null).text()).isEmpty();
+            assertThat(decoder.decodeCollecting(null).frames()).isEmpty();
+            assertThat(decoder.decodeCollecting("").text()).isEmpty();
+            assertThat(decoder.decodeCollecting("").frames()).isEmpty();
+        }
+    }
+
+    // ==================================================================
+    // 退化输入与边界分支
+    // ==================================================================
+
+    @Nested
+    @DisplayName("退化输入与边界分支")
+    class DegenerateInputAndEdgeBranches {
+
+        @Test
+        @DisplayName("null consumer 不抛异常，帧静默丢弃（防御性构造）")
+        void nullConsumerDoesNotThrow() {
+            ShellFrameDecoder silent = new ShellFrameDecoder(NONCE, null);
+
+            assertThat(silent.decode("\u001B]1337;cwd;" + NONCE + ";c1;/tmp\u0007")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("decode 接受 null/空输入并返回空文本，不产生帧")
+        void decodeHandlesNullOrEmptyInput() {
+            assertThat(decoder.decode(null)).isEmpty();
+            assertThat(decoder.decode("")).isEmpty();
+            assertThat(frames).isEmpty();
+        }
+
+        @Test
+        @DisplayName("OSC 内 ESC 后跟 ] 视为帧内容一部分，继续收集")
+        void escBracketInsideOscContinuesCollection() {
+            String data = "\u001B]1337;cwd;" + NONCE + ";c1;\u001B]tail\u0007";
+            String display = decoder.decode(data);
+
+            assertThat(frames).hasSize(1);
+            assertThat(frames.get(0).type()).isEqualTo(ShellFrameType.CWD);
+            assertThat(frames.get(0).payload()).isEqualTo("\u001B]tail");
+            assertThat(display).isEmpty();
+        }
+
+        @Test
+        @DisplayName("OSC 内 ESC 后跟普通字符同样继续收集")
+        void escPlainCharInsideOscContinuesCollection() {
+            String data = "\u001B]1337;cwd;" + NONCE + ";c1;\u001Bxtail\u0007";
+            String display = decoder.decode(data);
+
+            assertThat(frames).hasSize(1);
+            assertThat(frames.get(0).payload()).isEqualTo("\u001Bxtail");
+            assertThat(display).isEmpty();
+        }
+
+        @Test
+        @DisplayName("非 1337 的 OSC 序列被整体忽略并剥出显示流")
+        void non1337OscSequenceIsIgnored() {
+            String data = "\u001B]0;cmd_start;" + NONCE + ";c1\u0007";
+            String display = decoder.decode(data);
+
+            assertThat(frames).isEmpty();
+            assertThat(display).isEmpty();
+        }
+    }
 }

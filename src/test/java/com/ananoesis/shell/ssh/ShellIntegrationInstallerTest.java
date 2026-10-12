@@ -144,6 +144,72 @@ class ShellIntegrationInstallerTest {
     }
 
     @Test
+    @DisplayName("输出与完成帧同批到达：输出必须先行采集，帧后处理（内网实测 exit=0 空输出根因）")
+    void outputAndCompletionFramesInSameBatchCollectOutputFirst() throws Exception {
+        ShellIntegrationInstaller.Outcome outcome =
+                ShellIntegrationInstaller.install(terminal, "bash", timeouts, delegate, NOOP_SWITCH);
+        PtyCommandScheduler scheduler = outcome.scheduler();
+        String nonce = outcome.nonce();
+
+        CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                scheduler.submitCommand("ls -Al '/root'");
+        assertThat(String.join("", terminal.sentData)).contains("ls -Al '/root'\n");
+
+        // 远端先回 CMD_START（真实 bash 的 DEBUG 钩子时序：命令执行前出帧）
+        outcome.listener().onStdout("\u001B]1337;cmd_start;" + nonce + ";1;\u0007");
+
+        // WHY 同批喂入输出 + 完成帧 + 提示符文本：SSH 分块是随机的，内网快命令的
+        // 输出常与 CMD_END/PROMPT 帧落在同一批数据里。旧实现 decode 先同步回调帧
+        // （PROMPT 处提前完成命令），输出随后在 collectOutput 里找不到采集目标被
+        // 丢弃——工具拿到 exit=0 空 stdout，模型幻觉文件列表。修复后必须先采集
+        // 整批文本、后处理帧，输出才能完整归属命令。
+        outcome.listener().onStdout(
+                "total 6844\r\n-rw-------. 1 root root 1257 anaconda-ks.cfg\r\n"
+                        + "\u001B]1337;cmd_end;" + nonce + ";1;0\u0007"
+                        + "\u001B]1337;prompt;" + nonce + ";1;\u0007"
+                        + "[root@localhost ~]# ");
+
+        PtyCommandScheduler.CommandResult result = future.get(5, TimeUnit.SECONDS);
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.stdout()).contains("anaconda-ks.cfg");
+        assertThat(result.stdout()).contains("total 6844");
+        assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+    }
+
+    @Test
+    @DisplayName("CMD_START 帧与输出同批：帧先行打开采集闸门、输出随后采集（t15c 实测 sed 空输出根因）")
+    void cmdStartAndOutputInSameBatchStillCollectsOutput() throws Exception {
+        ShellIntegrationInstaller.Outcome outcome =
+                ShellIntegrationInstaller.install(terminal, "bash", timeouts, delegate, NOOP_SWITCH);
+        PtyCommandScheduler scheduler = outcome.scheduler();
+        String nonce = outcome.nonce();
+
+        CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                scheduler.submitCommand("sed -n '1,4p' '/etc/passwd'");
+        assertThat(String.join("", terminal.sentData)).contains("sed -n '1,4p' '/etc/passwd'\n");
+
+        // WHY 同批喂入 CMD_START 帧 + 命令输出：内网实测快速命令（sed）的 DEBUG 钩子帧
+        // 与输出常落在同一批数据里，帧在流中位于输出之前。t12d 的「整批文本先于帧」
+        // 顺序会把输出先于 CMD_START 帧处理，采集闸门（cmdStartSeen）未开即拒采，
+        // 工具拿到 exit=0 空 stdout——修复后必须按流内顺序交替处理帧与文本。
+        outcome.listener().onStdout(
+                "\u001B]1337;cmd_start;" + nonce + ";1;\u0007"
+                        + "root:x:0:0:root:/root:/bin/bash\r\n"
+                        + "bin:x:1:1:bin:/bin:/sbin/nologin\r\n"
+                        + "daemon:x:2:2:daemon:/sbin:/sbin/nologin\r\n"
+                        + "adm:x:3:4:adm:/var/adm:/sbin/nologin\r\n");
+        outcome.listener().onStdout("\u001B]1337;cmd_end;" + nonce + ";1;0\u0007");
+        outcome.listener().onStdout("\u001B]1337;prompt;" + nonce + ";1;\u0007");
+
+        PtyCommandScheduler.CommandResult result = future.get(5, TimeUnit.SECONDS);
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.stdout()).contains("root:x:0:0");
+        assertThat(result.stdout()).contains("bin:x:1:1");
+        assertThat(result.stdout()).contains("adm:x:3:4");
+        assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+    }
+
+    @Test
     @DisplayName("会话关闭联动调度器停止：排队与在飞命令不再自动推进")
     void closedSessionStopsScheduler() {
         ShellIntegrationInstaller.Outcome outcome =
@@ -162,7 +228,8 @@ class ShellIntegrationInstallerTest {
                 ShellIntegrationInstaller.install(terminal, "bash", timeouts, delegate, NOOP_SWITCH);
 
         ShellIntegrationInstaller.Outcome reinstalled =
-                ShellIntegrationInstaller.reinstall(terminal, "bash", timeouts, delegate, NOOP_SWITCH);
+                ShellIntegrationInstaller.reinstall(terminal, "bash", timeouts, delegate, NOOP_SWITCH,
+                        PtyCommandScheduler.DEFAULT_NESTED_DETECT_TIMEOUT_MS);
 
         assertThat(reinstalled.scheduler()).isNotNull();
         assertThat(reinstalled.scheduler()).isNotSameAs(original.scheduler());
@@ -171,6 +238,53 @@ class ShellIntegrationInstallerTest {
         // 重装集成代码已写入 PTY 且包含新 nonce
         String allSent = String.join("", terminal.sentData);
         assertThat(allSent).contains(reinstalled.nonce());
+    }
+
+    @Test
+    @DisplayName("reinstall 监听器：同批帧与输出按 offset 交替处理，命令完整采集（7 参 install 包装路径）")
+    void reinstalledListenerCollectsSameBatchFramesAndOutput() throws Exception {
+        ShellIntegrationInstaller.Outcome outcome = ShellIntegrationInstaller.reinstall(
+                terminal, "bash", timeouts, delegate, NOOP_SWITCH,
+                PtyCommandScheduler.DEFAULT_NESTED_DETECT_TIMEOUT_MS);
+        PtyCommandScheduler scheduler = outcome.scheduler();
+        String nonce = outcome.nonce();
+
+        CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                scheduler.submitCommand("sed -n '1,2p' '/etc/passwd'");
+
+        // 批 1：CMD_START 帧在批首（offset=0）后跟输出——「帧前文本」段为空，
+        // 采集闸门由帧先行打开、输出随后采集（t15e 实测 sed 空输出根因场景）
+        outcome.listener().onStdout("\u001B]1337;cmd_start;" + nonce + ";1;\u0007"
+                + "root:x:0:0:root:/root:/bin/bash\r\n");
+        // 批 2：输出 + CMD_END + PROMPT 帧 + 尾随提示符文本同批——帧前段先采集、
+        // 帧处完成命令、帧后提示符文本落回人工流（t12b 实测 exit=0 空输出根因场景）
+        outcome.listener().onStdout("bin:x:1:1:bin:/bin:/sbin/nologin\r\n"
+                + "\u001B]1337;cmd_end;" + nonce + ";1;0\u0007"
+                + "\u001B]1337;prompt;" + nonce + ";1;\u0007"
+                + "[root@localhost ~]# ");
+
+        PtyCommandScheduler.CommandResult result = future.get(5, TimeUnit.SECONDS);
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.stdout()).contains("root:x:0:0");
+        assertThat(result.stdout()).contains("bin:x:1:1");
+        assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+        // 控制帧被剥离：delegate 收到的每段文本都不含 OSC 帧
+        assertThat(delegate.stdout).allSatisfy(text -> assertThat(text).doesNotContain("1337"));
+    }
+
+    @Test
+    @DisplayName("reinstall 闸门：首个真实帧前吞掉重装回显，帧到达后放行干净文本")
+    void reinstalledGateSwallowsEchoThenOpensOnFirstFrame() {
+        ShellIntegrationInstaller.Outcome outcome = ShellIntegrationInstaller.reinstall(
+                terminal, "bash", timeouts, delegate, NOOP_SWITCH,
+                PtyCommandScheduler.DEFAULT_NESTED_DETECT_TIMEOUT_MS);
+
+        outcome.listener().onStdout("[root@localhost ~]# stty -echo\n");
+        assertThat(delegate.stdout).as("重装安装回显在首个帧前不得转发").isEmpty();
+
+        outcome.listener().onStdout("\u001B]1337;prompt;" + outcome.nonce() + ";0;\u0007"
+                + "[root@localhost ~]# ");
+        assertThat(delegate.stdout).containsExactly("[root@localhost ~]# ");
     }
 
     /** 不关心输出链切换的用例传入的空回调。 */

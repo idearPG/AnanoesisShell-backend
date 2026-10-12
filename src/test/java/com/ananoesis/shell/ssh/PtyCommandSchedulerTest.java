@@ -84,6 +84,21 @@ class PtyCommandSchedulerTest {
         }
 
         @Test
+        @DisplayName("null 帧与空输出是无副作用防御路径")
+        void nullFrameAndEmptyOutputAreNoOps() {
+            PtyCommandScheduler scheduler = createScheduler();
+            scheduler.onIntegrationSuccess();
+
+            scheduler.onFrame(null);
+            assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+
+            assertThat(scheduler.collectOutput(null)).isEmpty();
+            assertThat(scheduler.collectOutput("")).isEmpty();
+            assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+            assertThat(terminal.sentData).isEmpty();
+        }
+
+        @Test
         @DisplayName("集成未成功时状态为 unknown")
         void stateIsUnknownWhenIntegrationFailed() {
             PtyCommandScheduler scheduler = createScheduler();
@@ -125,6 +140,7 @@ class PtyCommandSchedulerTest {
             PtyCommandScheduler scheduler = createScheduler();
             scheduler.onIntegrationSuccess();
             assertThat(scheduler.sessionCwd()).isNull();
+            assertThat(scheduler.currentWorkingDirectory()).isNull();
 
             scheduler.onFrame(new ShellFrame(ShellFrameType.CWD, NONCE, "0", "/tmp/acceptance"));
 
@@ -134,6 +150,7 @@ class PtyCommandSchedulerTest {
             scheduler.submitCommand("pwd");
             scheduler.onFrame(new ShellFrame(ShellFrameType.CWD, NONCE, "c1", "/var/log"));
             assertThat(scheduler.sessionCwd()).isEqualTo("/var/log");
+            assertThat(scheduler.currentWorkingDirectory()).isEqualTo("/var/log");
         }
 
         @Test
@@ -175,6 +192,70 @@ class PtyCommandSchedulerTest {
 
             assertThat(future).isCompletedExceptionally();
         }
+
+        @Test
+        @DisplayName("agent_owned 时的人工输入事件不改变状态")
+        void manualBusyIgnoredWhenAgentOwned() {
+            PtyCommandScheduler scheduler = createScheduler();
+            scheduler.onIntegrationSuccess();
+            scheduler.submitCommand("echo hello"); // → agent_owned
+
+            scheduler.onManualBusy();
+
+            assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.AGENT_OWNED);
+        }
+
+        @Test
+        @DisplayName("非 busy 状态下 onManualIdle 无副作用")
+        void manualIdleNoopWhenNotBusy() {
+            PtyCommandScheduler scheduler = createScheduler();
+            scheduler.onIntegrationSuccess();
+
+            scheduler.onManualIdle();
+
+            assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+        }
+
+        @Test
+        @DisplayName("busy 自愈到期但已非 busy：无副作用早退")
+        void busyExpireNoopWhenNotBusy() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithBusyExpire(100);
+            scheduler.onIntegrationSuccess();
+
+            // 未标 busy，自愈任务到期后必须无副作用（不误发 Ctrl-C）
+            Thread.sleep(200);
+
+            assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+            assertThat(terminal.sentData).doesNotContain("\u0003");
+        }
+
+        @Test
+        @DisplayName("无在飞命令时 interruptCurrent 无副作用")
+        void interruptCurrentNoopWithoutCommand() {
+            PtyCommandScheduler scheduler = createScheduler();
+            scheduler.onIntegrationSuccess();
+
+            scheduler.interruptCurrent();
+
+            assertThat(scheduler.state()).isEqualTo(PtyCommandScheduler.State.MANUAL_IDLE);
+            assertThat(terminal.sentData).doesNotContain("\u0003");
+        }
+
+        @Test
+        @DisplayName("onStopping 在命令在飞且队列非空时：发 Ctrl-C 并清空队列")
+        void stoppingInterruptsInflightAndFailsQueued() {
+            PtyCommandScheduler scheduler = createScheduler();
+            scheduler.onIntegrationSuccess();
+            scheduler.submitCommand("first");
+            CompletableFuture<PtyCommandScheduler.CommandResult> queued =
+                    scheduler.submitCommand("second");
+
+            scheduler.onStopping();
+
+            assertThat(terminal.sentData).contains("\u0003");
+            assertThat(queued).isCompletedExceptionally();
+            assertThat(scheduler.queuedCount()).isZero();
+        }
     }
 
     // ==================================================================
@@ -215,6 +296,37 @@ class PtyCommandSchedulerTest {
 
             // 现在第二条应该被发送
             assertThat(terminal.sentData).contains("second\n");
+        }
+
+        @Test
+        @DisplayName("cmd_start 帧前到达的提示符文本不采集进命令 stdout（wc 总行数提示符污染回归）")
+        void promptTextBeforeCmdStartIsNotCollected() throws Exception {
+            PtyCommandScheduler scheduler = createScheduler();
+            scheduler.onIntegrationSuccess();
+
+            CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                    scheduler.submitCommand("wc -l '/etc/passwd'");
+
+            // 内网实测：上一条命令完成（PROMPT 帧）后调度器立即派发本命令，而上一条
+            // 命令的完成提示符文本随后才到达——它必须透传给用户终端，但绝不能采集进
+            // 本命令的 stdout（旧行为让 wc 的 stdout 首行变成提示符，总行数解析失败）
+            assertThat(scheduler.collectOutput("[root@localhost ~]# "))
+                    .as("提示符文本仍须原样透传给用户终端").isEqualTo("[root@localhost ~]# ");
+
+            // cmd_start 帧之后到达的回显与结果才属于本命令
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "c1", "wc -l '/etc/passwd'"));
+            scheduler.collectOutput("wc -l '/etc/passwd'\r\n19 /etc/passwd\r\n");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_END, NONCE, "c1", "0"));
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "c1", ""));
+
+            PtyCommandScheduler.CommandResult result = future.get(2, TimeUnit.SECONDS);
+            assertThat(result.stdout())
+                    .as("cmd_start 帧前到达的提示符文本不得进入命令 stdout")
+                    .doesNotContain("[root@localhost ~]#");
+            assertThat(result.stdout())
+                    .as("cmd_start 帧后的回显与结果正常采集")
+                    .contains("wc -l '/etc/passwd'")
+                    .contains("19 /etc/passwd");
         }
 
         @Test
@@ -312,6 +424,7 @@ class PtyCommandSchedulerTest {
 
             CompletableFuture<PtyCommandScheduler.CommandResult> future =
                     scheduler.submitCommand("yes");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "c1", "yes"));
 
             // 采集大量数据（超过 64 KiB = 65536 字节）
             StringBuilder largeOutput = new StringBuilder();
@@ -338,6 +451,7 @@ class PtyCommandSchedulerTest {
 
             CompletableFuture<PtyCommandScheduler.CommandResult> future =
                     scheduler.submitCommand("echo ok");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "c1", "echo ok"));
 
             scheduler.collectOutput("ok\n");
             scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_END, NONCE, "c1", "0"));
@@ -360,6 +474,7 @@ class PtyCommandSchedulerTest {
 
             CompletableFuture<PtyCommandScheduler.CommandResult> future =
                     scheduler.submitCommand("yum install -y java-1.8.0-openjdk");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "c1", "yum install -y java-1.8.0-openjdk"));
 
             // 模拟 600ms 持续输出（活动间隔 100ms，裕量为空闲阈值 500ms 的 1/5）
             long deadline = System.currentTimeMillis() + 600;
@@ -386,6 +501,7 @@ class PtyCommandSchedulerTest {
             scheduler.onIntegrationSuccess();
 
             scheduler.submitCommand("yes | tee /dev/null");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "c1", "yes | tee /dev/null"));
 
             long deadline = System.currentTimeMillis() + 800;
             while (System.currentTimeMillis() < deadline) {
@@ -740,16 +856,98 @@ class PtyCommandSchedulerTest {
         }
 
         @Test
-        @DisplayName("探测窗口内探针回显被抑制返回空串，普通输出原样透传")
-        void probeEchoSuppressedDuringProbeWindow() throws Exception {
+        @DisplayName("探测窗口内一切文本被抑制（探针回显、echo 输出、提示符），裁决后恢复透传")
+        void probeWindowSuppressesAllOutputUntilAdjudication() throws Exception {
             PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
             scheduler.onIntegrationSuccess();
 
             Thread.sleep(700); // 进入 PROBE_SENT
-            // 探针回显块必须被抑制（返回空串），否则会漏到用户终端（内网 4 行探针）
+            // WHY 整块抑制：探针命令回显、echo 输出行、bash 重新打印的提示符
+            // 都不在 OSC 帧协议内、解码器剥不掉，只有窗口内全抑制才不泄漏到
+            // 用户终端（内网实测 4 行探针 + 重复提示符均源于只抑制含标记块）
             assertThat(scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345")).isEmpty();
-            // 非探针内容不受影响，原样透传
-            assertThat(scheduler.collectOutput("普通输出\n")).isEqualTo("普通输出\n");
+            assertThat(scheduler.collectOutput("普通输出\n")).as("窗口内非探针文本同样抑制").isEmpty();
+
+            // WHY 900ms：两次 collectOutput 刷新了帧活动时刻，裁决顺延一轮，
+            // 需跨两个窗口（回显+无帧 → 嵌套确认 → FALLBACK）
+            Thread.sleep(900);
+            assertThat(callbackInvoked.get()).as("回显+窗口内无帧必须触发重安装回调").isTrue();
+
+            // 裁决处已清理抑制：用户后续输出恢复透传
+            assertThat(scheduler.collectOutput("裁决后的用户输出\n")).isEqualTo("裁决后的用户输出\n");
+        }
+
+        @Test
+        @DisplayName("bash 5 系竞态回归：CMD_START 帧先于输出行到达时，回显行仍被抑制（探针泄漏根因）")
+        void frameBeforeOutputLineStillSuppressesProbeEcho() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 进入 PROBE_SENT
+
+            // bash 5 系（openEuler）DEBUG trap 在命令执行前发 cmd_start 帧：
+            // onFrame 立即把 nestedState 重置回 IDLE，echo 输出行随后才到达。
+            // 旧实现以 nestedState==PROBE_SENT 为抑制条件，输出行在此竞态下
+            // 漏到用户终端（内网实测探针泄漏）。
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "", ""));
+            assertThat(scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345\n"))
+                    .as("帧已重置状态后，探针回显输出行仍必须被抑制").isEmpty();
+
+            // 帧到达即撤销探测：不触发重安装
+            Thread.sleep(1100);
+            assertThat(callbackInvoked.get()).as("帧到达说明钩子存活，不得触发重安装").isFalse();
+        }
+
+        @Test
+        @DisplayName("重复提示符回归：PROMPT 帧后的提示符文本被吞掉，随后恢复透传")
+        void promptTextAfterPromptFrameIsSwallowedThenPassthrough() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 进入 PROBE_SENT
+
+            // 健康 shell 的完整响应帧序：回显行 → PROMPT 帧 → 提示符文本
+            //（CentOS 7 实测：提示符文本紧跟 PROMPT 帧到达，帧与文本可能分块）
+            assertThat(scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345")).isEmpty();
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "0", ""));
+
+            // 吞尾窗口内（PROMPT 帧后 300ms）：提示符文本必须被吞掉——
+            // 旧实现透传导致用户终端每个探测周期多出一个空提示符行
+            //（内网实测「[root@localhost ~]# [root@localhost ~]#」重复提示符）
+            assertThat(scheduler.collectOutput("[root@localhost ~]# "))
+                    .as("探测产生的提示符文本必须被吞掉").isEmpty();
+
+            // WHY 350ms：越过 300ms 吞尾窗口但仍在下一探测周期（PROMPT 帧后
+            // 500ms）之前——窗口过后用户输出恢复透传
+            Thread.sleep(350);
+            assertThat(scheduler.collectOutput("正常输出\n")).isEqualTo("正常输出\n");
+
+            // PROMPT 帧说明钩子存活：不触发重安装
+            Thread.sleep(1100);
+            assertThat(callbackInvoked.get()).as("帧到达说明钩子存活，不得触发重安装").isFalse();
+        }
+
+        @Test
+        @DisplayName("无回显也无帧：裁决重置 IDLE 并清理抑制，恢复透传（用户离开场景）")
+        void noEchoNoFrameResetsToIdleAndRestoresPassthrough() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 进入 PROBE_SENT
+            // 不再注入任何回显/帧，等待裁决：无回显 → 重置 IDLE（用户离开场景）
+            Thread.sleep(700);
+
+            assertThat(callbackInvoked.get()).as("无回显不得确认嵌套").isFalse();
+            // 裁决处已清理抑制：用户回来后输出恢复透传
+            assertThat(scheduler.collectOutput("用户回来后的输出\n")).isEqualTo("用户回来后的输出\n");
         }
 
         @Test
@@ -771,11 +969,153 @@ class PtyCommandSchedulerTest {
             // 再经过多次探测周期（每周期 500ms）后降级为 FALLBACK
             Thread.sleep(4000);
             assertThat(scheduler.isNestedFallback()).as("多次无帧应降级为 exec 通道模式").isTrue();
+            assertThat(scheduler.isNestedShell()).as("降级后应告知上层已进入嵌套 Shell 环境").isTrue();
 
             // submitCommand 被拒绝（调用方走 exec 回落路径）
             CompletableFuture<PtyCommandScheduler.CommandResult> future =
                     scheduler.submitCommand("echo hello");
             assertThat(future).isCompletedExceptionally();
+        }
+
+        @Test
+        @DisplayName("探测抑制窗口内提交命令：排队至抑制结束派发，输出完整采集（list_dir 空输出回归）")
+        void commandSubmittedDuringProbeSuppressionIsQueuedAndCollected() throws Exception {
+            // WHY 命令超时 3s：硬截止（1500ms）触发派发的时刻由探测周期决定，
+            // 测试线程醒来后需余量发输出与完成帧，短超时会被空闲中断抢先（实测 200ms 超时在 sleep 内触发）
+            PtyCommandScheduler scheduler = new PtyCommandScheduler(terminal, NONCE, executor, 3000, 150,
+                    PtyCommandScheduler.DEFAULT_MAX_ABSOLUTE_MS,
+                    PtyCommandScheduler.DEFAULT_BUSY_EXPIRE_MS, 500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 探测已发送（probeSuppressActive=true）
+            // 健康 shell 的响应：回显 + PROMPT 帧（吞尾窗口开始）
+            scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "0", ""));
+
+            // WHY 本用例锚定内网实测：list_dir 的 ls 命令恰在抑制窗口内派发，
+            // 其回显与输出被 collectOutput 的抑制分支整块吞掉且不采集，
+            // 结果 exit=0 但 stdout 空 → 模型因空输出幻觉文件列表
+            CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                    scheduler.submitCommand("echo hello");
+            // 排队语义：抑制未结束时命令不得写入 PTY，否则探针残留会混入采集
+            assertThat(terminal.sentData)
+                    .as("抑制期间命令不得直接派发").doesNotContain("echo hello\n");
+
+            // 轮询等待硬截止（PROBE_SUPPRESS_MAX_MS=1500ms）派发排队命令
+            long deadline = System.currentTimeMillis() + 3000;
+            while (!terminal.sentData.contains("echo hello\n")
+                    && System.currentTimeMillis() < deadline) {
+                Thread.sleep(50);
+            }
+            assertThat(terminal.sentData)
+                    .as("抑制结束后命令应自动派发").contains("echo hello\n");
+
+            // 命令输出与完成帧序列
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "1", "echo hello"));
+            scheduler.collectOutput("hello\n");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_END, NONCE, "1", "0"));
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "1", ""));
+
+            PtyCommandScheduler.CommandResult result = future.get(3, TimeUnit.SECONDS);
+            assertThat(result.exitCode()).isZero();
+            assertThat(result.stdout())
+                    .as("命令输出不得被探测抑制吞掉").contains("hello");
+        }
+
+        @Test
+        @DisplayName("吞尾窗口结束后，抑制期间排队的命令自动派发且输出完整采集")
+        void queuedCommandDispatchedAfterTailWindow() throws Exception {
+            // WHY 命令超时 3s：恢复时刻由吞尾窗口（300ms）决定，需余量发输出与完成帧
+            PtyCommandScheduler scheduler = new PtyCommandScheduler(terminal, NONCE, executor, 3000, 150,
+                    PtyCommandScheduler.DEFAULT_MAX_ABSOLUTE_MS,
+                    PtyCommandScheduler.DEFAULT_BUSY_EXPIRE_MS, 500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 探测已发送
+            scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "0", ""));
+
+            CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                    scheduler.submitCommand("echo hello");
+            assertThat(terminal.sentData).doesNotContain("echo hello\n");
+
+            // 越过 300ms 吞尾窗口后新文本块到达：恢复透传并派发排队命令
+            Thread.sleep(350);
+            assertThat(scheduler.collectOutput("窗口外输出\n"))
+                    .as("恢复点的文本块必须原样透传，不得混入命令采集").isEqualTo("窗口外输出\n");
+            assertThat(terminal.sentData)
+                    .as("吞尾窗口结束后排队命令应已派发").contains("echo hello\n");
+
+            // 命令输出与完成帧序列
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_START, NONCE, "1", "echo hello"));
+            scheduler.collectOutput("hello\n");
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CMD_END, NONCE, "1", "0"));
+            scheduler.onFrame(new ShellFrame(ShellFrameType.PROMPT, NONCE, "1", ""));
+
+            PtyCommandScheduler.CommandResult result = future.get(3, TimeUnit.SECONDS);
+            assertThat(result.exitCode()).isZero();
+            assertThat(result.stdout()).contains("hello");
+        }
+
+        @Test
+        @DisplayName("抑制期间排队的命令在嵌套确认降级时以异常完成（走 exec 回落）")
+        void queuedCommandFailsFastWhenProbeAdjudicatesFallback() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+            scheduler.setNestedShellCallback(() -> callbackInvoked.set(true));
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700); // 探测已发送（抑制激活）
+            // 抑制期间提交：排队而非派发
+            CompletableFuture<PtyCommandScheduler.CommandResult> future =
+                    scheduler.submitCommand("echo hello");
+            assertThat(terminal.sentData).doesNotContain("echo hello\n");
+
+            // 回显到达（窗口内无帧）：裁决确认嵌套 → FALLBACK → 队列命令异常完成
+            scheduler.collectOutput("_ANANOESIS_NESTED_PROBE_12345");
+            // WHY 900ms：回显刷新帧活动时刻，裁决顺延一轮，需跨两个窗口
+            Thread.sleep(900);
+
+            assertThat(callbackInvoked.get()).as("回显+窗口内无帧必须触发重安装回调").isTrue();
+            assertThat(future).as("FALLBACK 时队列命令必须以异常完成，调用方走 exec 回落")
+                    .isCompletedExceptionally();
+        }
+
+        @Test
+        @DisplayName("探测到期前帧活动恢复：重排探测而非发送（帧活动顺延分支）")
+        void frameActivityBeforeDeadlineReschedulesInsteadOfProbing() throws Exception {
+            PtyCommandScheduler scheduler = createSchedulerWithNestedDetect(500);
+            scheduler.onIntegrationSuccess();
+
+            // 探测到期（500ms）前帧活动已恢复 → idleMs < 阈值 → 重排而非发送
+            Thread.sleep(250);
+            scheduler.onFrame(new ShellFrame(ShellFrameType.CWD, NONCE, "0", "/root"));
+            Thread.sleep(300); // t≈550：此时 idleMs≈300 < 500，不得发探针
+            assertThat(terminal.sentData).as("帧活动恢复后不得发送探测")
+                    .noneMatch(s -> s.contains(PtyCommandScheduler.NESTED_PROBE_MARKER));
+
+            // 持续无帧 → 下个周期（t≈1050）发送探测
+            Thread.sleep(600);
+            assertThat(terminal.sentData).as("帧活动停止后探测应正常发送")
+                    .anyMatch(s -> s.contains(PtyCommandScheduler.NESTED_PROBE_MARKER));
+        }
+
+        @Test
+        @DisplayName("嵌套检测超时配置为 0：完全禁用探测（旧行为保留开关）")
+        void nestedDetectDisabledSendsNoProbe() throws Exception {
+            PtyCommandScheduler scheduler = new PtyCommandScheduler(terminal, NONCE, executor, 200, 150,
+                    PtyCommandScheduler.DEFAULT_MAX_ABSOLUTE_MS,
+                    PtyCommandScheduler.DEFAULT_BUSY_EXPIRE_MS, 0);
+            scheduler.onIntegrationSuccess();
+
+            Thread.sleep(700);
+
+            assertThat(terminal.sentData).as("禁用嵌套检测时不得发送探测")
+                    .noneMatch(s -> s.contains(PtyCommandScheduler.NESTED_PROBE_MARKER));
         }
     }
 

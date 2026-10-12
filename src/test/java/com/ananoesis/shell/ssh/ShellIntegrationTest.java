@@ -182,6 +182,20 @@ class ShellIntegrationTest {
         }
 
         @Test
+        @DisplayName("debug_hook 不得在 prompt_hook 内部触发伪造 cmd_start：FUNCNAME 防护（t15c 实测 sed 空输出根因）")
+        void debugHookSkipsPromptHookInternals() {
+            // 内网实测：set -T 使 DEBUG trap 继承进函数，prompt_hook 清空 CMD_ID 后
+            // 其内部的 [ / eval 命令会触发 DEBUG trap，发出伪造 cmd_start 帧；伪造值
+            // 占用 CMD_ID 导致下一真实命令（sed）的 cmd_start 被跳过，采集闸门永不开，
+            // 输出全拒（工具拿 exit=0 空 stdout）。debug_hook 必须用 FUNCNAME 排除
+            // PROMPT_COMMAND 函数内部的触发。
+            String code = ShellIntegration.generateBashIntegrationCode("nonce-funcname");
+
+            assertThat(code).contains("FUNCNAME[1]");
+            assertThat(code).contains("_ananoesis_prompt_hook");
+        }
+
+        @Test
         @DisplayName("集成代码包含 cmd_end 帧发送")
         void codeContainsCmdEndFrame() {
             ShellIntegration integration = new ShellIntegration(terminal, "bash");

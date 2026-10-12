@@ -288,6 +288,39 @@ class AgentToolsTest extends AbstractSqliteIntegrationTest {
     }
 
     @Test
+    @DisplayName("4.2：wc 输出被完成提示符与命令回显污染时仍解析出总行数（内网实测 stdout 首行是提示符）")
+    void readFileParsesTotalLinesDespitePollutedWcOutput() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l10\nl11\nl12\n", "", false, false, 1L));
+        // 内网实测 wc 的真实 stdout：上一条命令的完成提示符混入头部，
+        // 随后是本命令回显，最后才是 "<数字> <路径>" 结果行——取首 token 的
+        // 旧解析在首行拿到 "[root@localhost" 直接失败，总行数标注丢失
+        exec.registerOutcome("wc -l", new ExecOutcome(0,
+                "[root@localhost ~]# wc -l '/etc/hosts'\r\n500 /etc/hosts\r\n", "", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", 10, 12, context(hostId));
+
+        assertThat(result)
+                .as("首 token 解析在提示符污染下必败；必须按行扫描数字开头的行")
+                .contains("[行 10-12 / 总 500 行]");
+    }
+
+    @Test
+    @DisplayName("4.2 降级：wc exit=0 但无可解析结果行时按失败处理，不阻塞范围读取")
+    void readFileDegradesWhenWcOutputHasNoResultLine() {
+        CannedExecService exec = cannedReturning(new ExecOutcome(0, "l10\n", "", false, false, 1L));
+        // 异常远端行为：wc 退出码 0 但 stdout 里没有任何 "<数字> <路径>" 结果行
+        exec.registerOutcome("wc -l", new ExecOutcome(0, "weird output\n", "", false, false, 1L));
+
+        String result = new AgentTools(exec, settings).readFile("/etc/hosts", 10, 12, context(hostId));
+
+        assertThat(result)
+                .as("扫描完所有行仍无结果行时不得报异常，按总行数未知降级")
+                .contains("[行 10-12]")
+                .contains("l10\n");
+        assertThat(result).doesNotContain("总");
+    }
+
+    @Test
     @DisplayName("4.2：仅传 start_line 时 sed 用 $ 读到末尾，标注为「X-末尾 / 总 Z 行」")
     void readFileWithOnlyStartLineReadsToEndOfFile() {
         CannedExecService exec = cannedReturning(new ExecOutcome(0, "l50\nl51\n", "", false, false, 1L));
