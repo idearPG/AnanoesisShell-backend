@@ -17,9 +17,9 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import com.ananoesis.shell.config.SshProperties;
+import com.ananoesis.shell.contract.model.Conversation;
 import com.ananoesis.shell.entity.CommandExecution;
 import com.ananoesis.shell.service.CommandExecutionService;
-import com.ananoesis.shell.contract.model.Conversation;
 import com.ananoesis.shell.service.ConversationService;
 import com.ananoesis.shell.ssh.PtyCommandScheduler.ManualCommandInfo;
 
